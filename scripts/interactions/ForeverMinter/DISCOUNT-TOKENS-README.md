@@ -39,6 +39,84 @@ Review the output JSON file to see:
 - Their discount percentage
 - Max uses per serial
 
+## Managing Discount Usage (Admin)
+
+### New Admin Tool: manageDiscountUsage.js
+
+Admins can now query and reset discount usage for serials that have been used for discounts. This is particularly useful when:
+- Serials return to the team and need to be refreshed
+- Running promotional campaigns that reset usage
+- Correcting errors or bugs in usage tracking
+
+**Location:** `scripts/interactions/ForeverMinter/admin/manageDiscountUsage.js`
+
+### Query Discount Usage
+
+Check how many times serials have been used for discounts:
+
+```bash
+# Check single serial
+node scripts/interactions/ForeverMinter/admin/manageDiscountUsage.js query 0.0.123456 1
+
+# Check multiple serials at once
+node scripts/interactions/ForeverMinter/admin/manageDiscountUsage.js query 0.0.123456 1 2 3 5 8 13
+
+# Output includes:
+# - Current usage count per serial
+# - Remaining uses available
+# - Status (UNUSED/ACTIVE/EXHAUSTED)
+# - Summary statistics
+```
+
+### Reset Discount Usage
+
+Reset discount usage back to zero for specific serials (admin only):
+
+```bash
+# Reset single serial
+node scripts/interactions/ForeverMinter/admin/manageDiscountUsage.js reset 0.0.123456 1
+
+# Reset multiple serials at once
+node scripts/interactions/ForeverMinter/admin/manageDiscountUsage.js reset 0.0.123456 1 2 3 5 8
+
+# The script will:
+# 1. Display current usage for all serials
+# 2. Filter to only serials with actual usage
+# 3. Show what will be reset
+# 4. Ask for confirmation
+# 5. Verify admin rights
+# 6. Execute the reset transaction
+```
+
+**Important Notes:**
+- Only admins can reset usage
+- Resets are permanent - serials get full uses back
+- Only serials with usage > 0 will be reset
+- Gas cost scales with number of serials (~25k gas per serial)
+
+### Use Cases
+
+**1. Serials Returning to Team**
+```bash
+# Check usage first
+node scripts/interactions/ForeverMinter/admin/manageDiscountUsage.js query 0.0.4728371 42
+
+# If partially used, reset it
+node scripts/interactions/ForeverMinter/admin/manageDiscountUsage.js reset 0.0.4728371 42
+```
+
+**2. Promotional Reset Campaign**
+```bash
+# Reset all serials in a batch (get serial list from your system)
+node scripts/interactions/ForeverMinter/admin/manageDiscountUsage.js reset 0.0.4728371 1 2 3 4 5 6 7 8 9 10
+```
+
+**3. Monitoring High-Value Serials**
+```bash
+# Regular check on legendary/rare serials
+node scripts/interactions/ForeverMinter/admin/manageDiscountUsage.js query 0.0.4728371 1 10 100 1000
+```
+
 ## Usage in Mint Script
 
 ### Enhanced Discount Display

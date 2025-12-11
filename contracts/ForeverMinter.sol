@@ -46,18 +46,18 @@ pragma solidity >=0.8.12 <0.9.0;
  * ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡
  */
 
-/// @title ForeverMinter - NFT Distribution with Discount System
-/// @author stowerling.eth / stowerling.hbar
-/// @notice Distributes existing NFTs from a pool with holder discounts, sacrifice mechanism, and refund system
-/// @dev Inherits TokenStakerV2 for royalty-compliant NFT transfers via STAKING/WITHDRAWAL
-/// @version 1.0.5
-
 // OpenZeppelin imports
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {
+    ReentrancyGuard
+} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
-import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
-import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {
+    EnumerableMap
+} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
+import {
+    EnumerableSet
+} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -66,6 +66,11 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {TokenStakerV2} from "./TokenStakerV2.sol";
 import {IPrngGenerator} from "./interfaces/IPrngGenerator.sol";
 
+/// @title ForeverMinter - NFT Distribution with Discount System
+/// @author stowerling.eth / stowerling.hbar
+/// @notice Distributes existing NFTs from a pool with holder discounts, sacrifice mechanism, and refund system
+/// @dev Inherits TokenStakerV2 for royalty-compliant NFT transfers via STAKING/WITHDRAWAL
+/// version 1.0.5
 contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     // ============ Using Directives ============
 
@@ -121,6 +126,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     MintEconomics private mintEconomics;
 
     /// @notice Timing and control configuration
+    // solhint-disable-next-line gas-struct-packing
     struct MintTiming {
         uint256 lastMintTime; // Last time a mint occurred
         uint256 mintStartTime; // When minting becomes available
@@ -200,77 +206,120 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     // ============ Events ============
 
     /// @notice Emitted when NFTs are successfully minted
+    /// @param minter The address that minted the NFTs
+    /// @param quantity The number of NFTs minted
+    /// @param serials The array of serial numbers minted
+    /// @param hbarPaid The amount of HBAR paid
+    /// @param lazyPaid The amount of LAZY paid
+    /// @param totalDiscount The total discount percentage applied
     event NFTMinted(
         address indexed minter,
         uint256 indexed quantity,
         uint256[] serials,
-        uint256 hbarPaid,
+        uint256 indexed hbarPaid,
         uint256 lazyPaid,
         uint256 totalDiscount
     );
 
     /// @notice Emitted when NFTs are refunded
+    /// @param refunder The address that refunded the NFTs
+    /// @param serials The array of serial numbers refunded
+    /// @param hbarRefunded The amount of HBAR refunded
+    /// @param lazyRefunded The amount of LAZY refunded
     event NFTRefunded(
         address indexed refunder,
         uint256[] serials,
-        uint256 hbarRefunded,
-        uint256 lazyRefunded
+        uint256 indexed hbarRefunded,
+        uint256 indexed lazyRefunded
     );
 
     /// @notice Emitted when NFTs are added to the pool
+    /// @param source The address that added the NFTs
+    /// @param serials The array of serial numbers added
+    /// @param newPoolSize The new size of the pool after addition
     event NFTsAddedToPool(
         address indexed source,
         uint256[] serials,
-        uint256 newPoolSize
+        uint256 indexed newPoolSize
     );
 
     /// @notice Emitted when NFTs are removed from the pool
-    event NFTsRemovedFromPool(uint256[] serials, uint256 newPoolSize);
+    /// @param serials The array of serial numbers removed
+    /// @param newPoolSize The new size of the pool after removal
+    event NFTsRemovedFromPool(uint256[] serials, uint256 indexed newPoolSize);
 
     /// @notice Emitted when a discount tier is added or updated
+    /// @param token The token address providing the discount
+    /// @param tierIndex The index of the discount tier
+    /// @param discountPercentage The discount percentage (0-100)
+    /// @param maxUsesPerSerial The maximum uses per serial
     event DiscountTierUpdated(
         address indexed token,
-        uint256 tierIndex,
-        uint256 discountPercentage,
+        uint256 indexed tierIndex,
+        uint256 indexed discountPercentage,
         uint256 maxUsesPerSerial
     );
 
     /// @notice Emitted when economics are updated
+    /// @param mintPriceHbar The base HBAR mint price
+    /// @param mintPriceLazy The base LAZY mint price
+    /// @param wlDiscount The whitelist discount percentage
+    /// @param sacrificeDiscount The sacrifice discount percentage
     event EconomicsUpdated(
-        uint256 mintPriceHbar,
-        uint256 mintPriceLazy,
-        uint256 wlDiscount,
+        uint256 indexed mintPriceHbar,
+        uint256 indexed mintPriceLazy,
+        uint256 indexed wlDiscount,
         uint256 sacrificeDiscount
     );
 
     /// @notice Emitted when timing is updated
+    /// @param mintStartTime The timestamp when minting starts
+    /// @param mintPaused Whether minting is paused
+    /// @param refundWindow The refund window duration in seconds
+    /// @param refundPercentage The refund percentage (0-100)
+    /// @param wlOnly Whether minting is whitelist-only
     event TimingUpdated(
-        uint256 mintStartTime,
-        bool mintPaused,
-        uint256 refundWindow,
+        uint256 indexed mintStartTime,
+        bool indexed mintPaused,
+        uint256 indexed refundWindow,
         uint256 refundPercentage,
         bool wlOnly
     );
 
     /// @notice Emitted when whitelist is updated
-    event WhitelistUpdated(address indexed account, bool added);
+    /// @param account The address being updated
+    /// @param added True if slots were added, false if removed
+    event WhitelistUpdated(address indexed account, bool indexed added);
 
     /// @notice Emitted when an admin is added or removed
-    event AdminUpdated(address indexed account, bool added);
+    /// @param account The address being updated
+    /// @param added True if admin was added, false if removed
+    event AdminUpdated(address indexed account, bool indexed added);
 
     /// @notice Emitted when funds are withdrawn
+    /// @param recipient The address receiving the funds
+    /// @param hbarAmount The amount of HBAR withdrawn
+    /// @param lazyAmount The amount of LAZY withdrawn
     event FundsWithdrawn(
         address indexed recipient,
-        uint256 hbarAmount,
-        uint256 lazyAmount
+        uint256 indexed hbarAmount,
+        uint256 indexed lazyAmount
     );
 
     /// @notice Emitted when LAZY payment is processed
+    /// @param payer The address making the payment
+    /// @param amount The total amount paid
+    /// @param burnAmount The amount burned
     event LazyPaymentEvent(
         address indexed payer,
-        uint256 amount,
-        uint256 burnAmount
+        uint256 indexed amount,
+        uint256 indexed burnAmount
     );
+
+    /// @notice Emitted when discount usage for serials is reset
+    /// @param token The discount token address
+    /// @param serials The array of serial numbers reset
+    event SerialDiscountUsageReset(address indexed token, uint256[] serials);
 
     // ============ Errors ============
 
@@ -368,10 +417,10 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     /// @notice Register NFTs that have been sent to the contract by treasury
     /// @param _serials Array of serial numbers to register
     /// @dev Verifies ownership before adding to pool. Likely only called by treasury but anyone can trigger.
-    function registerNFTs(uint256[] memory _serials) external {
+    function registerNFTs(uint256[] calldata _serials) external {
         if (_serials.length == 0) revert EmptyArray();
 
-        for (uint256 i = 0; i < _serials.length; i++) {
+        for (uint256 i = 0; i < _serials.length; ++i) {
             uint256 serial = _serials[i];
 
             // Verify contract owns the serial
@@ -394,7 +443,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     /// @notice Accept NFT donations to the pool from any address
     /// @param _serials Array of serial numbers to add
     /// @dev Uses STAKING transfer direction to respect royalties
-    function addNFTsToPool(uint256[] memory _serials) external {
+    function addNFTsToPool(uint256[] calldata _serials) external {
         if (_serials.length == 0) revert EmptyArray();
 
         // Transfer NFTs to contract using STAKING direction
@@ -408,7 +457,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
         );
 
         // Add serials to available pool
-        for (uint256 i = 0; i < _serials.length; i++) {
+        for (uint256 i = 0; i < _serials.length; ++i) {
             uint256 serial = _serials[i];
 
             // Do not need to check if serial is already in pool
@@ -426,14 +475,14 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     /// @param _recipient Address to receive the NFTs
     /// @dev Only callable by admins. Can be used when paused.
     function emergencyWithdrawNFTs(
-        uint256[] memory _serials,
+        uint256[] calldata _serials,
         address _recipient
     ) external onlyAdmin {
         if (_serials.length == 0) revert EmptyArray();
         if (_recipient == address(0)) revert InvalidParameter();
 
         // Remove from available pool
-        for (uint256 i = 0; i < _serials.length; i++) {
+        for (uint256 i = 0; i < _serials.length; ++i) {
             uint256 serial = _serials[i];
 
             if (!availableSerials.contains(serial)) {
@@ -468,9 +517,9 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     /// @dev IMPORTANT: For optimal discounts, provide _discountTokens sorted by discount tier (highest first)
     function mintNFT(
         uint256 _numberToMint,
-        address[] memory _discountTokens,
-        uint256[][] memory _serialsByToken,
-        uint256[] memory _sacrificeSerials
+        address[] calldata _discountTokens,
+        uint256[][] calldata _serialsByToken,
+        uint256[] calldata _sacrificeSerials
     ) external payable nonReentrant whenMintingAllowed {
         // ====== Step 1: Validate inputs ======
 
@@ -515,10 +564,9 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
         uint256[] memory selectedSerials = selectRandomSerials(_numberToMint);
 
         // ====== Step 2: Process Sacrifice (if applicable) ======
-
         if (_sacrificeSerials.length > 0) {
             // Verify ownership and transfer sacrificed NFTs
-            for (uint256 i = 0; i < _sacrificeSerials.length; i++) {
+            for (uint256 i = 0; i < _sacrificeSerials.length; ++i) {
                 uint256 serial = _sacrificeSerials[i];
 
                 if (IERC721(NFT_TOKEN).ownerOf(serial) != msg.sender) {
@@ -551,16 +599,14 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
                 );
             } else {
                 // Otherwise, add to available pool
-                for (uint256 i = 0; i < _sacrificeSerials.length; i++) {
+                for (uint256 i = 0; i < _sacrificeSerials.length; ++i) {
                     availableSerials.add(_sacrificeSerials[i]);
                 }
             }
         }
 
         // ====== Step 3: Build and Validate Discount Slots (Once) ======
-
         DiscountSlot[] memory discountSlots;
-
         if (_discountTokens.length > 0) {
             // Build and sort discount slots ONCE (sorted internally)
             discountSlots = _buildAndSortDiscountSlots(
@@ -569,7 +615,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
             );
 
             // Validate ownership or delegation for all provided serials
-            for (uint256 i = 0; i < discountSlots.length; i++) {
+            for (uint256 i = 0; i < discountSlots.length; ++i) {
                 if (
                     !_canUseSerial(
                         msg.sender,
@@ -583,7 +629,6 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
         }
 
         // ====== Step 4: Calculate Cost (Using Pre-Built Slots) ======
-
         MintCostResult memory costResult = calculateMintCostWithSlots(
             _numberToMint,
             discountSlots,
@@ -591,7 +636,6 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
         );
 
         // ====== Step 5: Process Dual-Currency Payment ======
-
         uint256 hbarPaid = 0;
         uint256 lazyPaid = 0;
 
@@ -639,7 +683,6 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
         }
 
         // ====== Step 6: Transfer Selected NFTs ======
-
         // Transfer NFTs to user (1 tinybar per transfer)
         batchMoveNFTs(
             TransferDirection.WITHDRAWAL,
@@ -651,7 +694,6 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
         );
 
         // ====== Step 7: Consume Discount Slots (Using Pre-Calculated Counts) ======
-
         if (costResult.holderSlotsUsed > 0 && discountSlots.length > 0) {
             // Consume holder slots based on pre-calculated waterfall usage
             uint256 slotsConsumed = 0;
@@ -659,7 +701,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
                 uint256 i = 0;
                 i < discountSlots.length &&
                     slotsConsumed < costResult.holderSlotsUsed;
-                i++
+                ++i
             ) {
                 address token = discountSlots[i].token;
                 uint256 serial = discountSlots[i].serial;
@@ -685,7 +727,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
         uint256 hbarPerNFT = hbarPaid / _numberToMint;
         uint256 lazyPerNFT = lazyPaid / _numberToMint;
 
-        for (uint256 i = 0; i < selectedSerials.length; i++) {
+        for (uint256 i = 0; i < selectedSerials.length; ++i) {
             uint256 serial = selectedSerials[i];
             serialMintTime[serial] = block.timestamp;
             serialPaymentTracking[serial] = MintPayment({
@@ -724,14 +766,14 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
 
     /// @notice Refund NFTs within the refund window
     /// @param _serials Array of serial numbers to refund
-    function refundNFT(uint256[] memory _serials) external nonReentrant {
+    function refundNFT(uint256[] calldata _serials) external nonReentrant {
         if (_serials.length == 0) revert EmptyArray();
 
         uint256 totalHbarRefund = 0;
         uint256 totalLazyRefund = 0;
 
         // Validate and calculate refunds
-        for (uint256 i = 0; i < _serials.length; i++) {
+        for (uint256 i = 0; i < _serials.length; ++i) {
             uint256 serial = _serials[i];
 
             // Verify ownership
@@ -784,7 +826,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
         );
 
         // Add back to available pool
-        for (uint256 i = 0; i < _serials.length; i++) {
+        for (uint256 i = 0; i < _serials.length; ++i) {
             availableSerials.add(_serials[i]);
         }
 
@@ -897,7 +939,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
         }
 
         // STEP 2: Apply holder discounts (sorted by best discount, can stack with WL)
-        for (uint256 i = 0; i < _slots.length && nftsRemaining > 0; i++) {
+        for (uint256 i = 0; i < _slots.length && nftsRemaining > 0; ++i) {
             uint256 nftsAtThisDiscount = Math.min(
                 nftsRemaining,
                 _slots[i].usesAvailable
@@ -984,8 +1026,8 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     /// @return usesRemaining Array of remaining uses for each serial
     /// @return isEligible Array of eligibility flags
     function getBatchSerialDiscountInfo(
-        address[] memory _tokens,
-        uint256[] memory _serials
+        address[] calldata _tokens,
+        uint256[] calldata _serials
     )
         external
         view
@@ -1001,7 +1043,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
         usesRemaining = new uint256[](_serials.length);
         isEligible = new bool[](_serials.length);
 
-        for (uint256 i = 0; i < _serials.length; i++) {
+        for (uint256 i = 0; i < _serials.length; ++i) {
             address token = _tokens[i];
             uint256 serial = _serials[i];
 
@@ -1058,7 +1100,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     ) internal view returns (DiscountSlot[] memory slots) {
         // Calculate total slot count
         uint256 totalSlots = 0;
-        for (uint256 i = 0; i < _serialsByToken.length; i++) {
+        for (uint256 i = 0; i < _serialsByToken.length; ++i) {
             totalSlots += _serialsByToken[i].length;
         }
 
@@ -1066,7 +1108,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
         uint256 slotIndex = 0;
 
         // Build slots array
-        for (uint256 i = 0; i < _tokens.length; i++) {
+        for (uint256 i = 0; i < _tokens.length; ++i) {
             address token = _tokens[i];
 
             if (!isDiscountToken[token]) continue;
@@ -1074,7 +1116,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
             uint256 tierIndex = tokenToTierIndex[token];
             DiscountTier memory tier = discountTiers[tierIndex];
 
-            for (uint256 j = 0; j < _serialsByToken[i].length; j++) {
+            for (uint256 j = 0; j < _serialsByToken[i].length; ++j) {
                 uint256 serial = _serialsByToken[i][j];
                 uint256 usageCount = serialDiscountUsage[token][serial];
                 uint256 remaining = tier.maxUsesPerSerial > usageCount
@@ -1088,19 +1130,20 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
                         discountPercentage: tier.discountPercentage,
                         usesAvailable: remaining
                     });
-                    slotIndex++;
+                    ++slotIndex;
                 }
             }
         }
 
         // Resize array to actual number of valid slots (safe assembly usage)
+        // solhint-disable-next-line no-inline-assembly
         assembly {
             mstore(slots, slotIndex)
         }
 
         // Sort by discount percentage (descending) using insertion sort
         uint256 length = slotIndex; // Use actual length after resize
-        for (uint256 i = 1; i < length; i++) {
+        for (uint256 i = 1; i < length; ++i) {
             DiscountSlot memory key = slots[i];
             uint256 j = i;
             while (
@@ -1108,7 +1151,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
                 slots[j - 1].discountPercentage < key.discountPercentage
             ) {
                 slots[j] = slots[j - 1];
-                j--;
+                --j;
             }
             slots[j] = key;
         }
@@ -1122,7 +1165,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     ) internal returns (uint256[] memory selectedSerials) {
         selectedSerials = new uint256[](_count);
 
-        for (uint256 i = 0; i < _count; i++) {
+        for (uint256 i = 0; i < _count; ++i) {
             // Get current pool size
             uint256 poolSize = availableSerials.length();
 
@@ -1232,9 +1275,51 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
         emit DiscountTierUpdated(_token, tierIndex, 0, 0);
     }
 
+    /// @notice Reset discount usage for specific serials (admin only)
+    /// @param _token The discount token address
+    /// @param _serials Array of serial numbers to reset
+    /// @dev Sets usage count back to 0, allowing full discount uses again
+    function resetSerialDiscountUsage(
+        address _token,
+        uint256[] calldata _serials
+    ) external onlyAdmin {
+        if (!isDiscountToken[_token]) revert InvalidParameter();
+        if (_serials.length == 0) revert EmptyArray();
+
+        for (uint256 i = 0; i < _serials.length; ++i) {
+            delete serialDiscountUsage[_token][_serials[i]];
+        }
+
+        emit SerialDiscountUsageReset(_token, _serials);
+    }
+
+    /// @notice Get current discount usage for multiple serials (batch query)
+    /// @param _token The discount token address
+    /// @param _serials Array of serial numbers to check
+    /// @return usageCounts Array of current usage counts
+    function getBatchSerialDiscountUsage(
+        address _token,
+        uint256[] calldata _serials
+    ) external view returns (uint256[] memory usageCounts) {
+        usageCounts = new uint256[](_serials.length);
+        for (uint256 i = 0; i < _serials.length; ++i) {
+            usageCounts[i] = serialDiscountUsage[_token][_serials[i]];
+        }
+    }
+
     // ============ Admin Functions - Economics ============
 
     /// @notice Update mint economics
+    /// @param _mintPriceHbar Base HBAR mint price (tinybars)
+    /// @param _mintPriceLazy Base LAZY mint price
+    /// @param _wlDiscount Whitelist discount percentage (0-100)
+    /// @param _sacrificeDiscount Sacrifice discount percentage (0-100)
+    /// @param _maxMint Max NFTs per mint transaction (0 = unlimited)
+    /// @param _maxMintPerWallet Max total mints per wallet (0 = unlimited)
+    /// @param _buyWlWithLazy LAZY cost to buy WL slot(s)
+    /// @param _buyWlSlotCount Number of WL slots granted per purchase
+    /// @param _maxSacrifice Max NFTs that can be sacrificed per mint
+    /// @param _lazyFromContract If true, contract pays LAZY cost (sponsorship)
     function updateEconomics(
         uint256 _mintPriceHbar,
         uint256 _mintPriceLazy,
@@ -1272,6 +1357,11 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     // ============ Admin Functions - Timing ============
 
     /// @notice Update mint timing configuration
+    /// @param _mintStartTime Timestamp when minting starts
+    /// @param _mintPaused Whether minting is paused
+    /// @param _refundWindow Time window for refunds (seconds)
+    /// @param _refundPercentage Percentage of payment refunded (0-100)
+    /// @param _wlOnly Restrict minting to whitelist only
     function updateTiming(
         uint256 _mintStartTime,
         bool _mintPaused,
@@ -1329,12 +1419,12 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     /// @param _addresses Array of addresses to add slots to
     /// @param _slots Array of slot counts to add (must match _addresses length)
     function batchAddToWhitelist(
-        address[] memory _addresses,
-        uint256[] memory _slots
+        address[] calldata _addresses,
+        uint256[] calldata _slots
     ) external onlyAdmin {
         if (_addresses.length != _slots.length) revert ArrayLengthMismatch();
 
-        for (uint256 i = 0; i < _addresses.length; i++) {
+        for (uint256 i = 0; i < _addresses.length; ++i) {
             if (_addresses[i] != address(0) && _slots[i] > 0) {
                 whitelistSlots[_addresses[i]] += _slots[i];
                 emit WhitelistUpdated(_addresses[i], true);
@@ -1345,11 +1435,11 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     /// @notice Remove addresses from whitelist (sets slots to 0)
     /// @param _addresses Array of addresses to remove
     function removeFromWhitelist(
-        address[] memory _addresses
+        address[] calldata _addresses
     ) external onlyAdmin {
         if (_addresses.length == 0) revert EmptyArray();
 
-        for (uint256 i = 0; i < _addresses.length; i++) {
+        for (uint256 i = 0; i < _addresses.length; ++i) {
             if (_addresses[i] != address(0)) {
                 whitelistSlots[_addresses[i]] = 0;
                 emit WhitelistUpdated(_addresses[i], false);
@@ -1400,7 +1490,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     /// @param _admin Address to remove from admins
     function removeAdmin(address _admin) external onlyAdmin {
         // Must have at least one admin
-        if (adminSet.length() <= 1) revert CannotRemoveLastAdmin();
+        if (adminSet.length() < 2) revert CannotRemoveLastAdmin();
 
         adminSet.remove(_admin);
         emit AdminUpdated(_admin, false);
@@ -1418,7 +1508,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     function getAdmins() external view returns (address[] memory) {
         uint256 length = adminSet.length();
         address[] memory admins = new address[](length);
-        for (uint256 i = 0; i < length; i++) {
+        for (uint256 i = 0; i < length; ++i) {
             admins[i] = adminSet.at(i);
         }
         return admins;
@@ -1501,10 +1591,10 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     /// @param _users Array of addresses to check
     /// @return Array of slot counts for each address
     function getBatchWhitelistSlots(
-        address[] memory _users
+        address[] calldata _users
     ) external view returns (uint256[] memory) {
         uint256[] memory slots = new uint256[](_users.length);
-        for (uint256 i = 0; i < _users.length; i++) {
+        for (uint256 i = 0; i < _users.length; ++i) {
             slots[i] = whitelistSlots[_users[i]];
         }
         return slots;
@@ -1570,7 +1660,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
         uint256 resultLength = end - _offset;
         uint256[] memory serials = new uint256[](resultLength);
 
-        for (uint256 i = 0; i < resultLength; i++) {
+        for (uint256 i = 0; i < resultLength; ++i) {
             serials[i] = availableSerials.at(_offset + i);
         }
 
@@ -1637,7 +1727,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     /// @return isOwed Array of booleans indicating if refund is owed for each serial
     /// @return expiryTimes Array of timestamps when refund expires for each serial (0 if not eligible)
     function isRefundOwed(
-        uint256[] memory _serials
+        uint256[] calldata _serials
     )
         external
         view
@@ -1646,7 +1736,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
         isOwed = new bool[](_serials.length);
         expiryTimes = new uint256[](_serials.length);
 
-        for (uint256 i = 0; i < _serials.length; i++) {
+        for (uint256 i = 0; i < _serials.length; ++i) {
             uint256 serial = _serials[i];
             uint256 mintTime = serialMintTime[serial];
 
