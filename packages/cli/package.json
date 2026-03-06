@@ -1,0 +1,35 @@
+{
+  "name": "@lazysuperheroes/hedera-minter-cli",
+  "version": "1.0.0",
+  "description": "CLI for deploying and managing Hedera NFT minting contracts",
+  "main": "index.js",
+  "bin": {
+    "hedera-mint": "./bin/hedera-mint.js"
+  },
+  "files": [
+    "bin/",
+    "commands/",
+    "lib/"
+  ],
+  "keywords": [
+    "hedera",
+    "nft",
+    "cli",
+    "minting"
+  ],
+  "author": "Lazy Superheroes",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Burstall/hedera-SC-minter"
+  },
+  "dependencies": {
+    "@lazysuperheroes/hedera-minter-sdk": "^1.0.0",
+    "@lazysuperheroes/hedera-minter-contracts": "^1.0.0",
+    "@hashgraph/sdk": "^2.19.0",
+    "commander": "^12.0.0",
+    "dotenv": "^16.0.3",
+    "ethers": "^6.13.1",
+    "readline-sync": "^1.4.10"
+  }
+}

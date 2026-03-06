@@ -1,0 +1,25 @@
+{
+  "name": "@lazysuperheroes/hedera-minter-contracts",
+  "version": "1.0.0",
+  "description": "Hedera NFT minting smart contract ABIs and Solidity sources",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "abi/",
+    "contracts/"
+  ],
+  "keywords": [
+    "hedera",
+    "nft",
+    "minting",
+    "smart-contracts",
+    "hts",
+    "solidity"
+  ],
+  "author": "Lazy Superheroes",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Burstall/hedera-SC-minter"
+  }
+}

@@ -15,3 +15,12 @@ deployment-*.txt
 
 testnet-metadata.json
 testnet-royalties.json
+
+# Built packages
+dist/
+
+# Working documents (not for distribution)
+docs/IMPLEMENTATION-PLAN.md
+
+# Claude Code frameworks (exclude all)
+.claude/
