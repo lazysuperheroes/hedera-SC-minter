@@ -1,5 +1,4 @@
 const {
-	Client,
 	AccountId,
 	PrivateKey,
 	ContractFunctionParameters,
@@ -25,6 +24,8 @@ const {
 const { checkMirrorHbarBalance } = require('../utils/hederaMirrorHelpers');
 const { fail } = require('assert');
 const { ethers } = require('ethers');
+const { createClient } = require('../scripts/lib/scriptBase');
+const { ZERO_ADDRESS, ADDRESS_REGEX } = require('./helpers/constants');
 
 require('dotenv').config();
 
@@ -34,8 +35,6 @@ const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
 const contractName = 'SoulboundBadgeMinter';
 const env = process.env.ENVIRONMENT ?? null;
 const MINT_PAYMENT = process.env.MINT_PAYMENT || 50;
-
-const addressRegex = /(\d+\.\d+\.[1-9]\d+)/i;
 
 // reused variables
 let contractId;
@@ -47,62 +46,22 @@ let bobPK, bobId;
 let tokenId;
 let minterIface;
 
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
-
 describe('Deployment: ', function () {
 	it('Should deploy the contract and setup conditions', async function () {
-		if (contractName === undefined || contractName == null) {
-			console.log('Environment required, please specify CONTRACT_NAME for ABI');
-			process.exit(1);
-		}
-		if (operatorKey === undefined || operatorKey == null || operatorId === undefined || operatorId == null) {
-			console.log('Environment required, please specify PRIVATE_KEY & ACCOUNT_ID');
-			process.exit(1);
-		}
-
-		console.log('\n-Using ENVIRONMENT:', env);
-
-		if (env.toUpperCase() == 'TEST') {
-			client = Client.forTestnet();
-			clientAlice = Client.forTestnet();
-			clientBob = Client.forTestnet();
-		}
-		else if (env.toUpperCase() == 'MAIN') {
-			client = Client.forMainnet();
-			clientAlice = Client.forMainnet();
-			clientBob = Client.forMainnet();
-		}
-		else if (env.toUpperCase() == 'PREVIEW') {
-			client = Client.forPreviewnet();
-			clientAlice = Client.forPreviewnet();
-			clientBob = Client.forPreviewnet();
-		}
-		else if (env.toUpperCase() == 'LOCAL') {
-			const node = { '127.0.0.1:50211': new AccountId(3) };
-			client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-			clientAlice = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-			clientBob = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-		}
-		else {
-			console.log('ERROR: Must specify either MAIN or TEST or PREVIEW or LOCAL as environment in .env file');
-			return;
-		}
-
-		client.setOperator(operatorId, operatorKey);
-		// deploy the contract
+		client = createClient(env, operatorId, operatorKey);
 		console.log('\n-Using Operator:', operatorId.toString());
 
 		// create Alice account
 		alicePK = PrivateKey.generateED25519();
 		aliceId = await accountCreator(client, alicePK, 200);
 		console.log('Alice account ID:', aliceId.toString(), '\nkey:', alicePK.toString());
-		clientAlice.setOperator(aliceId, alicePK);
+		clientAlice = createClient(env, aliceId, alicePK);
 
 		// create Bob account
 		bobPK = PrivateKey.generateED25519();
 		bobId = await accountCreator(client, bobPK, 200);
 		console.log('Bob account ID:', bobId.toString(), '\nkey:', bobPK.toString());
-		clientBob.setOperator(bobId, bobPK);
+		clientBob = createClient(env, bobId, bobPK);
 
 		const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
 
@@ -124,7 +83,7 @@ describe('Deployment: ', function () {
 
 		console.log('\n-Testing:', contractName);
 
-		expect(contractId.toString().match(addressRegex).length == 2).to.be.true;
+		expect(contractId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 
 		// deploy a revocable contract
 		const revocableConstructorParams = new ContractFunctionParameters()
@@ -133,7 +92,7 @@ describe('Deployment: ', function () {
 		[revocableContractId] = await contractDeployFunction(client, contractBytecode, gasLimit, revocableConstructorParams);
 
 		console.log(`Revocable Contract created with ID: ${revocableContractId} / ${revocableContractId.toSolidityAddress()}`);
-		expect(revocableContractId.toString().match(addressRegex).length == 2).to.be.true;
+		expect(revocableContractId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 	});
 });
 
@@ -237,7 +196,7 @@ describe('Check SC deployment...', function () {
 		}
 		tokenId = TokenId.fromSolidityAddress(result[1][0]);
 		console.log('Token Created:', tokenId.toString(), 'tx:', result[2]?.transactionId?.toString());
-		expect(tokenId.toString().match(addressRegex).length == 2).to.be.true;
+		expect(tokenId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 
 		// Check unlimited supply was set correctly
 		const maxSupply = Number(result[1][1]);

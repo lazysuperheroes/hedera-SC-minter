@@ -33,6 +33,7 @@ const {
 const { checkMirrorBalance, getSerialsOwned, checkMirrorHbarBalance } = require('../utils/hederaMirrorHelpers');
 const { fail } = require('assert');
 const { ethers } = require('ethers');
+const { ADDRESS_REGEX } = require('./helpers/constants');
 
 require('dotenv').config();
 
@@ -47,8 +48,6 @@ const env = process.env.ENVIRONMENT ?? null;
 const MINT_PAYMENT = process.env.MINT_PAYMENT || 50;
 const LAZY_DECIMAL = process.env.LAZY_DECIMALS ?? 1;
 const LAZY_MAX_SUPPLY = process.env.LAZY_MAX_SUPPLY ?? 250_000_000;
-
-const addressRegex = /(\d+\.\d+\.[1-9]\d+)/i;
 
 let contractId, contractAddress;
 let client;
@@ -174,8 +173,8 @@ describe('Deployment & Setup: ', function () {
 			console.log('LAZY Token created:', lazyTokenId.toString());
 		}
 
-		expect(lazySCT.toString().match(addressRegex).length == 2).to.be.true;
-		expect(lazyTokenId.toString().match(addressRegex).length == 2).to.be.true;
+		expect(lazySCT.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
+		expect(lazyTokenId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 
 		// Deploy LazyGasStation
 		const lazyGasStationJson = JSON.parse(
@@ -236,7 +235,7 @@ describe('Deployment & Setup: ', function () {
 			console.log('Contract LAZY balance:', contractLazyBal);
 		}
 
-		expect(lazyGasStation.toString().match(addressRegex).length == 2).to.be.true;
+		expect(lazyGasStation.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 
 		// Deploy PrngGenerator
 		const prngJson = JSON.parse(
@@ -265,7 +264,7 @@ describe('Deployment & Setup: ', function () {
 			console.log(`PrngGenerator deployed: ${prngGenerator} / ${prngGenerator.toSolidityAddress()}`);
 		}
 
-		expect(prngGenerator.toString().match(addressRegex).length == 2).to.be.true;
+		expect(prngGenerator.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 
 		// Deploy LazyDelegateRegistry
 		const lazyDelegateRegistryName = 'LazyDelegateRegistry';
@@ -295,11 +294,21 @@ describe('Deployment & Setup: ', function () {
 			console.log(`LazyDelegateRegistry deployed: ${lazyDelegateRegistry} / ${lazyDelegateRegistry.toSolidityAddress()}`);
 		}
 
-		expect(lazyDelegateRegistry.toString().match(addressRegex).length == 2).to.be.true;
+		expect(lazyDelegateRegistry.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 
 		// Ensure operator has LAZY tokens
 		const operatorLazyBal = await checkMirrorBalance(env, operatorId, lazyTokenId);
 		if (!operatorLazyBal || operatorLazyBal < 1000) {
+			// need to check if the token is associated!
+			if (operatorLazyBal === null) {
+				const assocResult = await associateTokenToAccount(client, operatorId, operatorKey, lazyTokenId);
+				if (assocResult !== 'SUCCESS') {
+					console.log('LAZY token association failed for operator:', assocResult);
+					fail('LAZY token association failed');
+				}
+				console.log('Associated LAZY token to operator');
+			}
+
 			console.log('\n-Operator needs LAZY, drawing from creator');
 			const drawResult = await contractExecuteFunction(
 				lazySCT,
@@ -357,7 +366,7 @@ describe('Deployment & Setup: ', function () {
 
 		nftTokenId = result[1];
 		console.log('\n-NFT Collection minted:', nftTokenId.toString(), '(100 serials)');
-		expect(nftTokenId.toString().match(addressRegex).length == 2).to.be.true;
+		expect(nftTokenId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 	});
 
 	it('Should mint discount holder NFTs (2 collections)', async function () {
@@ -399,8 +408,8 @@ describe('Deployment & Setup: ', function () {
 		discountToken2Id = result2[1];
 		console.log('-Discount Token 2 minted:', discountToken2Id.toString(), '(10 serials)');
 
-		expect(discountToken1Id.toString().match(addressRegex).length == 2).to.be.true;
-		expect(discountToken2Id.toString().match(addressRegex).length == 2).to.be.true;
+		expect(discountToken1Id.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
+		expect(discountToken2Id.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 	});
 
 	it('Should deploy ForeverMinter contract', async function () {
@@ -437,7 +446,7 @@ describe('Deployment & Setup: ', function () {
 		console.log(`Contract created with ID: ${contractId} / ${contractAddress}`);
 		console.log('\n-Testing:', contractName);
 
-		expect(contractId.toString().match(addressRegex).length == 2).to.be.true;
+		expect(contractId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 
 		// Register ForeverMinter with LazyGasStation
 		console.log('\n-Registering ForeverMinter with LazyGasStation');
@@ -1349,7 +1358,7 @@ describe('Whitelist Management:', function () {
 			lazyTokenId,
 			carolId,
 			lazyGasStation,
-			100,
+			1000,
 		);
 		expect(allowanceResult).to.be.equal('SUCCESS');
 		lazyAllowancesSet.push({ owner: carolId, tokenId: lazyTokenId, spender: lazyGasStation });
