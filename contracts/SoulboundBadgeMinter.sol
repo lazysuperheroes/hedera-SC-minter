@@ -58,7 +58,7 @@ import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+
 
 /**
  * @title SoulboundBadgeMinter
@@ -84,7 +84,7 @@ contract SoulboundBadgeMinter is ExpiryHelper, Ownable, ReentrancyGuard {
     using SafeCast for int64;
     using SafeCast for int256;
     using Address for address;
-    using Strings for string;
+
 
     // ========== CONSTANTS ==========
 

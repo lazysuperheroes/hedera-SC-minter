@@ -61,7 +61,7 @@ import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+
 
 // Custom imports
 import {HederaResponseCodes} from "./HederaResponseCodes.sol";
@@ -76,11 +76,12 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
 
     using EnumerableMap for EnumerableMap.AddressToUintMap;
     using EnumerableSet for EnumerableSet.UintSet;
+    using EnumerableSet for EnumerableSet.AddressSet;
     using SafeCast for uint256;
     using SafeCast for int64;
     using SafeCast for int256;
     using Address for address;
-    using Strings for string;
+
 
     // ============ Custom Errors ============
 
@@ -118,6 +119,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
     error EmptyMetadata();
     error NotEnoughUsdc();
     error UsdcWithdrawFailed();
+    error NotAdmin();
 
     // ============ Enums ============
 
@@ -210,6 +212,9 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
     // Per-wallet mint tracking
     EnumerableMap.AddressToUintMap private wlAddressToNumMintedMap;
     EnumerableMap.AddressToUintMap private addressToNumMintedMap;
+
+    // Admin management
+    EnumerableSet.AddressSet private adminSet;
 
     // ============ Events ============
 
@@ -332,9 +337,15 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
         });
 
         currentPhase = Phase.NOT_INITIALIZED;
+        adminSet.add(msg.sender);
     }
 
     // ============ Modifiers ============
+
+    modifier onlyAdmin() {
+        if (!adminSet.contains(msg.sender) && msg.sender != owner()) revert NotAdmin();
+        _;
+    }
 
     modifier onlyPhase(Phase _phase) {
         if (currentPhase != _phase) revert InvalidPhase();
@@ -1022,6 +1033,26 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
         }
     }
 
+    // ============ Admin Management Functions ============
+
+    /// @notice Add an admin
+    /// @param _admin Address to add as admin
+    function addAdmin(address _admin) external onlyOwner {
+        adminSet.add(_admin);
+    }
+
+    /// @notice Remove an admin
+    /// @param _admin Address to remove from admin
+    function removeAdmin(address _admin) external onlyOwner {
+        adminSet.remove(_admin);
+    }
+
+    /// @notice Get all admins
+    /// @return Array of admin addresses
+    function getAdmins() external view returns (address[] memory) {
+        return adminSet.values();
+    }
+
     // ============ Whitelist Management Functions ============
 
     /// @notice Manually add addresses to whitelist
@@ -1030,7 +1061,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
     function addToWhitelist(
         address[] memory _addresses,
         uint256[] memory _quantities
-    ) external onlyOwner {
+    ) external onlyAdmin {
         if (_addresses.length != _quantities.length) revert BadArguments();
 
         for (uint256 i = 0; i < _addresses.length; i++) {
@@ -1048,7 +1079,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
     /// @param _addresses Array of addresses to remove
     function removeFromWhitelist(
         address[] memory _addresses
-    ) external onlyOwner {
+    ) external onlyAdmin {
         for (uint256 i = 0; i < _addresses.length; i++) {
             if (whitelistedAddressQtyMap.contains(_addresses[i])) {
                 whitelistedAddressQtyMap.remove(_addresses[i]);
@@ -1141,7 +1172,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
 
     /// @notice Pause or unpause minting
     /// @param _paused True to pause, false to unpause
-    function setPaused(bool _paused) external onlyOwner {
+    function setPaused(bool _paused) external onlyAdmin {
         mintTiming.mintPaused = _paused;
 
         emit EditionWithPrizeEvent(
@@ -1153,7 +1184,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
 
     /// @notice Set mint start time
     /// @param _startTime Unix timestamp when minting begins
-    function setMintStartTime(uint256 _startTime) external onlyOwner {
+    function setMintStartTime(uint256 _startTime) external onlyAdmin {
         mintTiming.mintStartTime = _startTime;
 
         emit EditionWithPrizeEvent(
@@ -1165,7 +1196,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
 
     /// @notice Enable or disable whitelist-only minting
     /// @param _wlOnly True to restrict to whitelist only
-    function setWhitelistOnly(bool _wlOnly) external onlyOwner {
+    function setWhitelistOnly(bool _wlOnly) external onlyAdmin {
         mintTiming.wlOnly = _wlOnly;
 
         emit EditionWithPrizeEvent(
@@ -1183,7 +1214,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
         uint256 _hbarPrice,
         uint256 _lazyPrice,
         uint256 _usdcPrice
-    ) external onlyOwner {
+    ) external onlyAdmin {
         mintEconomics.mintPriceHbar = _hbarPrice;
         mintEconomics.mintPriceLazy = _lazyPrice;
         mintEconomics.mintPriceUsdc = _usdcPrice;
@@ -1209,7 +1240,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
 
     /// @notice Set whitelist discount percentage
     /// @param _discount Discount percentage (0-100)
-    function setWhitelistDiscount(uint256 _discount) external onlyOwner {
+    function setWhitelistDiscount(uint256 _discount) external onlyAdmin {
         if (_discount > 100) revert BadArguments();
         mintEconomics.wlDiscount = _discount;
 
@@ -1222,7 +1253,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
 
     /// @notice Set whitelist slots per purchase
     /// @param _slots Number of whitelist slots granted per purchase
-    function setWlSlotsPerPurchase(uint256 _slots) external onlyOwner {
+    function setWlSlotsPerPurchase(uint256 _slots) external onlyAdmin {
         if (_slots == 0) revert BadArguments();
         mintEconomics.wlSlotsPerPurchase = _slots;
 
@@ -1235,7 +1266,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
 
     /// @notice Set maximum mints per transaction
     /// @param _maxMint Max mints per transaction (0 = unlimited)
-    function setMaxMint(uint256 _maxMint) external onlyOwner {
+    function setMaxMint(uint256 _maxMint) external onlyAdmin {
         mintEconomics.maxMint = _maxMint;
 
         emit EditionWithPrizeEvent(
@@ -1247,7 +1278,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
 
     /// @notice Set maximum mints per wallet
     /// @param _maxMintPerWallet Max total mints per wallet (0 = unlimited)
-    function setMaxMintPerWallet(uint256 _maxMintPerWallet) external onlyOwner {
+    function setMaxMintPerWallet(uint256 _maxMintPerWallet) external onlyAdmin {
         mintEconomics.maxMintPerWallet = _maxMintPerWallet;
 
         emit EditionWithPrizeEvent(
@@ -1259,7 +1290,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
 
     /// @notice Set maximum WL address mints
     /// @param _maxWlAddressMint Max mints for WL addresses (0 = unlimited)
-    function setMaxWlAddressMint(uint256 _maxWlAddressMint) external onlyOwner {
+    function setMaxWlAddressMint(uint256 _maxWlAddressMint) external onlyAdmin {
         mintEconomics.maxWlAddressMint = _maxWlAddressMint;
 
         emit EditionWithPrizeEvent(
@@ -1271,7 +1302,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
 
     /// @notice Set LAZY purchase price for WL
     /// @param _price Price in LAZY tokens
-    function setBuyWlWithLazy(uint256 _price) external onlyOwner {
+    function setBuyWlWithLazy(uint256 _price) external onlyAdmin {
         mintEconomics.buyWlWithLazy = _price;
 
         emit EditionWithPrizeEvent(
@@ -1283,7 +1314,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
 
     /// @notice Set token used for WL purchase
     /// @param _token Address of token to use for WL
-    function setWlToken(address _token) external onlyOwner {
+    function setWlToken(address _token) external onlyAdmin {
         mintEconomics.wlToken = _token;
 
         emit EditionWithPrizeEvent(
@@ -1295,7 +1326,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
 
     /// @notice Set LAZY burn percentage
     /// @param _percentage Percentage to burn (0-100)
-    function setLazyBurnPercentage(uint256 _percentage) external onlyOwner {
+    function setLazyBurnPercentage(uint256 _percentage) external onlyAdmin {
         if (_percentage > 100) revert BadArguments();
         lazyDetails.lazyBurnPerc = _percentage;
 
@@ -1308,7 +1339,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
 
     /// @notice Set whether contract pays LAZY cost
     /// @param _fromContract True if contract pays
-    function setLazyFromContract(bool _fromContract) external onlyOwner {
+    function setLazyFromContract(bool _fromContract) external onlyAdmin {
         mintEconomics.lazyFromContract = _fromContract;
 
         emit EditionWithPrizeEvent(
@@ -1320,7 +1351,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
 
     /// @notice Set USDC price for minting
     /// @param _price Price in USDC (6 decimals)
-    function setMintPriceUsdc(uint256 _price) external onlyOwner {
+    function setMintPriceUsdc(uint256 _price) external onlyAdmin {
         mintEconomics.mintPriceUsdc = _price;
 
         emit EditionWithPrizeEvent(
@@ -1331,7 +1362,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
     }
 
     /// @notice Withdraw accumulated USDC tokens to owner
-    function withdrawUSDC() external onlyOwner {
+    function withdrawUSDC() external onlyAdmin {
         // Withdraw native USDC
         uint256 nativeBalance = IERC20(USDC_NATIVE).balanceOf(address(this));
         if (nativeBalance > 0) {
@@ -1351,7 +1382,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
     }
 
     /// @notice Withdraw accumulated HBAR balance to owner
-    function withdrawHbar() external onlyOwner {
+    function withdrawHbar() external onlyAdmin {
         uint256 balance = address(this).balance;
         if (balance > 0) {
             Address.sendValue(payable(owner()), balance);
@@ -1359,7 +1390,7 @@ contract EditionWithPrize is ExpiryHelper, Ownable, ReentrancyGuard {
     }
 
     /// @notice Withdraw accumulated LAZY tokens to owner
-    function withdrawLazy() external onlyOwner {
+    function withdrawLazy() external onlyAdmin {
         uint256 lazyBalance = IERC20(lazyDetails.lazyToken).balanceOf(
             address(this)
         );

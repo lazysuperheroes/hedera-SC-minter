@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity >=0.8.12 <0.9.0;
-pragma experimental ABIEncoderV2;
+
+/// @notice DEPRECATED: V2 helpers for future use with HTS precompile 0x16c. No current contract uses this chain.
 
 interface IHederaTokenServiceV2 {
     /// Transfers cryptocurrency among two or more accounts by making the desired adjustments to their

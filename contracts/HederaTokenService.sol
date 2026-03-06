@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity >=0.8.12 <0.9.0;
-pragma experimental ABIEncoderV2;
 
 import {HederaResponseCodes} from "./HederaResponseCodes.sol";
 import {IHederaTokenService} from "./interfaces/IHederaTokenService.sol";

@@ -356,7 +356,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
 
     /// @notice Restricts function access to admins only
     modifier onlyAdmin() {
-        if (!adminSet.contains(msg.sender)) revert NotAdmin();
+        if (!adminSet.contains(msg.sender) && msg.sender != owner()) revert NotAdmin();
         _;
     }
 
@@ -719,8 +719,6 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
 
         // ====== Step 8: Update State ======
 
-        // Update mint tracking
-        walletMintCount[msg.sender] += _numberToMint;
         mintTiming.lastMintTime = block.timestamp;
 
         // Track payment for each serial (for refunds) - split both HBAR and LAZY evenly
@@ -742,13 +740,17 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
             whitelistSlots[msg.sender] -= costResult.wlSlotsUsed;
         }
 
-        // Update wallet average payment (for future refund calculations)
+        // Update wallet average payment BEFORE incrementing mint count
+        // so the weighted average formula uses the correct previous count
         updateWalletAveragePayment(
             msg.sender,
             hbarPaid,
             lazyPaid,
             _numberToMint
         );
+
+        // Update mint tracking (after average calculation)
+        walletMintCount[msg.sender] += _numberToMint;
 
         // ====== Step 9: Emit Event ======
 
@@ -771,6 +773,8 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
 
         uint256 totalHbarRefund = 0;
         uint256 totalLazyRefund = 0;
+        uint256 totalHbarPaid = 0;
+        uint256 totalLazyPaid = 0;
 
         // Validate and calculate refunds
         for (uint256 i = 0; i < _serials.length; ++i) {
@@ -798,6 +802,9 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
 
             // Calculate refund
             MintPayment memory payment = serialPaymentTracking[serial];
+
+            totalHbarPaid += payment.hbarPaid;
+            totalLazyPaid += payment.lazyPaid;
 
             if (payment.hbarPaid > 0) {
                 totalHbarRefund +=
@@ -840,7 +847,8 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
             lazyGasStation.payoutLazy(msg.sender, totalLazyRefund, 0);
         }
 
-        // Update wallet mint count
+        // Update wallet average payment and mint count
+        _adjustAveragePaymentOnRefund(msg.sender, _serials.length, totalHbarPaid, totalLazyPaid);
         walletMintCount[msg.sender] -= _serials.length;
 
         emit NFTRefunded(
@@ -1211,6 +1219,38 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
         }
     }
 
+    /// @notice Adjust wallet average payment when serials are refunded
+    /// @dev Subtracts the refunded serials' original payments from the running total
+    ///      and recalculates the average over the remaining mint count.
+    /// @param _wallet The wallet address
+    /// @param _refundCount Number of serials being refunded
+    /// @param _hbarPaid Total original HBAR paid for refunded serials
+    /// @param _lazyPaid Total original LAZY paid for refunded serials
+    function _adjustAveragePaymentOnRefund(
+        address _wallet,
+        uint256 _refundCount,
+        uint256 _hbarPaid,
+        uint256 _lazyPaid
+    ) internal {
+        uint256 currentCount = walletMintCount[_wallet];
+        uint256 newCount = currentCount - _refundCount;
+        if (newCount == 0) {
+            walletAveragePaymentHbar[_wallet] = 0;
+            walletAveragePaymentLazy[_wallet] = 0;
+        } else {
+            // Reconstruct total paid, subtract refunded amount, re-average
+            uint256 totalHistoricalHbar = walletAveragePaymentHbar[_wallet] * currentCount;
+            walletAveragePaymentHbar[_wallet] = totalHistoricalHbar > _hbarPaid
+                ? (totalHistoricalHbar - _hbarPaid) / newCount
+                : 0;
+
+            uint256 totalHistoricalLazy = walletAveragePaymentLazy[_wallet] * currentCount;
+            walletAveragePaymentLazy[_wallet] = totalHistoricalLazy > _lazyPaid
+                ? (totalHistoricalLazy - _lazyPaid) / newCount
+                : 0;
+        }
+    }
+
     // ============ Admin Functions - Discount Management ============
 
     /// @notice Add or update a discount tier
@@ -1578,6 +1618,16 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
         address _wallet
     ) external view returns (uint256) {
         return walletMintCount[_wallet];
+    }
+
+    /// @notice Get average payment per NFT for a wallet
+    /// @param _wallet Wallet address to check
+    /// @return avgHbar Average HBAR paid per NFT (tinybars)
+    /// @return avgLazy Average LAZY paid per NFT
+    function getWalletAveragePayment(
+        address _wallet
+    ) external view returns (uint256 avgHbar, uint256 avgLazy) {
+        return (walletAveragePaymentHbar[_wallet], walletAveragePaymentLazy[_wallet]);
     }
 
     /// @notice Check if address is whitelisted

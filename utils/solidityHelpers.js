@@ -4,6 +4,7 @@ const dotenv = require('dotenv');
 const { ContractCallQuery, Client, TransactionRecordQuery, ContractExecuteTransaction, ContractCreateFlow } = require('@hashgraph/sdk');
 const { getBaseURL } = require('./hederaMirrorHelpers');
 const { formatTransactionAnalysis } = require('./transactionHelpers');
+const { sleep } = require('./nodeHelpers');
 dotenv.config();
 
 const SLEEP_TIME = process.env.SLEEP_TIME ?? 5000;
@@ -377,11 +378,6 @@ async function contractDeployFunction(client, bytecode, gasLim = 800_000, params
 	return [contractId, contractAddress];
 }
 
-// sleep function
-function sleep(ms) {
-	return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 module.exports = {
 	parseError,
 	parseErrorTransactionId,
@@ -391,5 +387,4 @@ module.exports = {
 	readOnlyEVMFromMirrorNode,
 	linkBytecode,
 	contractDeployFunction,
-	getBaseURL,
 };
