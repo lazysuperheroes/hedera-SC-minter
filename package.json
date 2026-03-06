@@ -23,7 +23,7 @@
   "license": "ISC",
   "dependencies": {
     "@eslint/eslintrc": "^3.1.0",
-    "@hashgraph/sdk": "^2.19.0",
+    "@hashgraph/sdk": "^2.80.0",
     "axios": "^1.2.0",
     "dotenv": "^16.0.3",
     "ethers": "^6.13.1",
@@ -38,7 +38,6 @@
     "eslint": "^9.5.0",
     "globals": "^15.6.0",
     "hardhat": "^2.12.3",
-    "abi-decoder": "^2.4.0",
     "solhint": "^5.0.1"
   }
 }

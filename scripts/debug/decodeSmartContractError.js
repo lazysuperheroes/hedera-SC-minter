@@ -2,31 +2,19 @@ const {
 	AccountId,
 } = require('@hashgraph/sdk');
 
-const abiDecoder = require('abi-decoder');
+const { ethers } = require('ethers');
 const axios = require('axios');
 
 let contractId = '';
 let mirrorUrl = '';
 
 function errorSignature(error_message) {
-	const error = {
-		data: '',
-		signature: '',
-	};
-
-	const signature = error_message.substr(0, 8).replace('0x', '');
-	error.signature = signature;
-	error.data = error_message;
-	return error;
+	const data = error_message.startsWith('0x') ? error_message : '0x' + error_message;
+	const signature = data.slice(0, 10);
+	return { data, signature };
 }
 
 async function getErrorFromMirror(silent, depth = 1) {
-	const error = {
-		data: '',
-		signature: '',
-	};
-
-	// get the results from mirror
 	const url = `https://${mirrorUrl}.mirrornode.hedera.com/api/v1/contracts/${contractId}/results?order=desc&limit=${depth}`;
 
 	const response = await axios(url);
@@ -37,19 +25,12 @@ async function getErrorFromMirror(silent, depth = 1) {
 		if (error_message) {
 			return errorSignature(error_message);
 		}
-		else {
-			if (!silent) {
-				console.error('no error message found');
-			}
-			return error;
-		}
 	}
-	else {
-		if (!silent) {
-			console.error('no error message found');
-		}
-		return error;
+
+	if (!silent) {
+		console.error('no error message found');
 	}
+	return { data: '', signature: '' };
 }
 
 async function getAbi(signature, silent) {
@@ -74,55 +55,26 @@ async function getAbi(signature, silent) {
 
 async function processError(error, silent, indent) {
 	if (error.signature) {
-		// get the abi for the signature
 		const errorFunction = await getAbi(error.signature);
 		if (errorFunction != '') {
-			const abi = [];
-			const abiFragment = {
-				outputs: [],
-				name: '',
-				inputs: [],
-				stateMutability: 'view',
-				type: 'function',
-			};
-			abiFragment.name = '';
+			// Build an ethers Interface from the text signature (e.g. "BootstrapCallFailedError(address,bytes)")
+			const iface = new ethers.Interface([`function ${errorFunction}`]);
+			const decoded = iface.decodeFunctionData(errorFunction.split('(')[0], error.data);
+			const fragment = iface.getFunction(errorFunction.split('(')[0]);
 
-			// name and parameters are plain text such as BootstrapCallFailedError(address,bytes)
-			// need to convert to an actual ABI
-			const nameAndParameters = errorFunction.split('(');
-			// the function's name
-			abiFragment.name = nameAndParameters[0];
-			const parameterList = nameAndParameters[1].replace(')', '');
-			// now split the parameters into an array
-			const parameters = parameterList.split(',');
-			parameters.forEach(parameter => {
-				const input = {
-					name: '',
-					internalType: '',
-					type: '',
-				};
-				input.internalType = parameter;
-				input.type = parameter;
-				abiFragment.inputs.push(input);
-			});
+			if (decoded && fragment) {
+				console.log(`${'.'.repeat(indent)}Error is ${fragment.name}`);
+				fragment.inputs.forEach((input, i) => {
+					const value = decoded[i];
+					console.log(`${'.'.repeat(indent)}Parameter (${input.type}) = ${value}`);
 
-			abi.push(abiFragment);
-			// Setup a abiDecoder with the ABI for the error
-			abiDecoder.addABI(abi);
-			const decodedError = abiDecoder.decodeMethod(error.data);
-
-			if (decodedError) {
-				console.log(`${'.'.repeat(indent)}Error is ${decodedError.name}`);
-				decodedError.params.forEach(parameter => {
-					console.log(`${'.'.repeat(indent)}Parameter (${parameter.type}) = ${parameter.value}`);
-
-					if (parameter.type == 'address') {
-						console.log(`${'.'.repeat(indent)}=> Hedera address ${AccountId.fromSolidityAddress(parameter.value)}`);
+					if (input.type == 'address') {
+						console.log(`${'.'.repeat(indent)}=> Hedera address ${AccountId.fromSolidityAddress(value)}`);
 					}
 					console.log('');
 
-					if ((parameter.type == 'bytes') && (parameter.value != null)) {
-						const innerError = errorSignature(parameter.value, true);
+					if ((input.type == 'bytes') && (value != null)) {
+						const innerError = errorSignature(value);
 						processError(innerError, true, indent + 2);
 					}
 				});
@@ -137,17 +89,15 @@ async function processError(error, silent, indent) {
 async function main() {
 
 	console.log('');
-	// get the command line parameters
 	const args = process.argv.slice(2);
 	if (args.length == 1) {
-		const error = await errorSignature(args[0]);
+		const error = errorSignature(args[0]);
 		await processError(error, false, 0);
 	}
 	else if (args.length == 2) {
 		mirrorUrl = args[0];
 		contractId = args[1];
 
-		// get the signature and data for the error
 		const error = await getErrorFromMirror(false);
 		await processError(error, false, 0);
 	}
@@ -155,7 +105,6 @@ async function main() {
 		mirrorUrl = args[0];
 		contractId = args[1];
 
-		// get the signature and data for the error
 		const depth = args[2];
 		for (let d = 1; d <= depth; d++) {
 			console.log('Depth:', d);
