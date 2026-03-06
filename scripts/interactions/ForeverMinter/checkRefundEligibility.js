@@ -1,94 +1,67 @@
-const {
-	Client,
-	AccountId,
-	PrivateKey,
-	ContractId,
-	TokenId,
-} = require('@hashgraph/sdk');
-require('dotenv').config();
-const fs = require('fs');
-const { ethers } = require('ethers');
+const { TokenId } = require('@hashgraph/sdk');
+const { initScript, runScript } = require('../../lib/scriptBase');
+const { readContract } = require('../../lib/contractHelpers');
 const { readOnlyEVMFromMirrorNode } = require('../../../utils/solidityHelpers');
 const { getSerialsOwned } = require('../../../utils/hederaMirrorHelpers');
 
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractName = 'ForeverMinter';
-const contractId = ContractId.fromString(process.env.FOREVER_MINTER_CONTRACT_ID || '');
-const env = process.env.ENVIRONMENT ?? null;
-let client;
+const jsonMode = process.env.HEDERA_MINT_JSON === '1';
 
-const main = async () => {
-	if (!operatorId || !operatorKey || !contractId || contractId.toString() === '0.0.0') {
-		console.log('❌ Error: Missing configuration in .env file');
-		return;
-	}
+runScript(async () => {
+	const { client, operatorId, operatorKey, contractId, env, iface } = initScript({
+		contractName: 'ForeverMinter',
+		contractEnvVar: 'FOREVER_MINTER_CONTRACT_ID',
+	});
 
-	console.log('\n🔄 ForeverMinter - Refund Eligibility Check');
-	console.log('==============================================\n');
-
-	// Setup client
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-	}
-	else {
-		console.log('❌ Error: Invalid ENVIRONMENT in .env file');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-
-	// Load ABI
-	const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
-	const minterIface = new ethers.Interface(json.abi);
+	if (!jsonMode) console.log('\n🔄 ForeverMinter - Refund Eligibility Check');
+	if (!jsonMode) console.log('==============================================\n');
 
 	try {
 		// Get NFT token address
-		const nftTokenCommand = minterIface.encodeFunctionData('NFT_TOKEN');
-		const nftTokenResult = await readOnlyEVMFromMirrorNode(env, contractId, nftTokenCommand, operatorId, false);
-		const nftTokenAddress = minterIface.decodeFunctionResult('NFT_TOKEN', nftTokenResult)[0];
+		const nftTokenAddress = (await readContract(iface, env, contractId, operatorId, 'NFT_TOKEN'))[0];
 		const nftTokenId = TokenId.fromSolidityAddress(nftTokenAddress);
 
 		// Get timing for refund window info
-		const timingCommand = minterIface.encodeFunctionData('getMintTiming');
-		const timingResult = await readOnlyEVMFromMirrorNode(env, contractId, timingCommand, operatorId, false);
-		const timing = minterIface.decodeFunctionResult('getMintTiming', timingResult)[0];
+		const timing = (await readContract(iface, env, contractId, operatorId, 'getMintTiming'))[0];
 
-		console.log('📊 Refund Configuration:');
-		console.log(`   Refund Window: ${Number(timing.refundWindow) / 3600} hours`);
-		console.log(`   Refund Percentage: ${Number(timing.refundPercentage)}%`);
-		console.log('');
+		if (!jsonMode) console.log('📊 Refund Configuration:');
+		if (!jsonMode) console.log(`   Refund Window: ${Number(timing.refundWindow) / 3600} hours`);
+		if (!jsonMode) console.log(`   Refund Percentage: ${Number(timing.refundPercentage)}%`);
+		if (!jsonMode) console.log('');
 
 		// Get owned NFTs
-		console.log('🔍 Checking your NFT holdings...');
+		if (!jsonMode) console.log('🔍 Checking your NFT holdings...');
 		const ownedSerials = await getSerialsOwned(env, operatorId, nftTokenId);
 
 		if (ownedSerials.length === 0) {
+			if (jsonMode) {
+				console.log(JSON.stringify({
+					nftToken: nftTokenId.toString(),
+					refundWindowHours: Number(timing.refundWindow) / 3600,
+					refundPercentage: Number(timing.refundPercentage),
+					ownedSerials: [],
+					eligibleSerials: [],
+					expiredSerials: [],
+					neverMintedSerials: [],
+					totalHbarRefund: 0,
+					totalLazyRefund: 0,
+				}, null, 2));
+				return;
+			}
 			console.log(`\n❌ You do not own any NFTs from token ${nftTokenId.toString()}`);
 			console.log('   No refunds available');
 			return;
 		}
 
-		console.log(`✅ You own ${ownedSerials.length} NFT(s)`);
-		console.log(`   Token: ${nftTokenId.toString()}`);
-		console.log(`   Serials: ${ownedSerials.join(', ')}`);
+		if (!jsonMode) console.log(`✅ You own ${ownedSerials.length} NFT(s)`);
+		if (!jsonMode) console.log(`   Token: ${nftTokenId.toString()}`);
+		if (!jsonMode) console.log(`   Serials: ${ownedSerials.join(', ')}`);
 
 		// Check refund eligibility
-		console.log('\n⏰ Checking refund eligibility...\n');
+		if (!jsonMode) console.log('\n⏰ Checking refund eligibility...\n');
 
-		const eligibilityCommand = minterIface.encodeFunctionData('isRefundOwed', [ownedSerials]);
+		const eligibilityCommand = iface.encodeFunctionData('isRefundOwed', [ownedSerials]);
 		const eligibilityResult = await readOnlyEVMFromMirrorNode(env, contractId, eligibilityCommand, operatorId, false);
-		const [isOwed, expiryTimes] = minterIface.decodeFunctionResult('isRefundOwed', eligibilityResult);
+		const [isOwed, expiryTimes] = iface.decodeFunctionResult('isRefundOwed', eligibilityResult);
 
 		const now = Math.floor(Date.now() / 1000);
 		const eligibleSerials = [];
@@ -113,15 +86,39 @@ const main = async () => {
 
 				eligibleSerials.push({ serial, expiry, timeLeft });
 
-				console.log(`✅ Serial ${serial}: ELIGIBLE`);
-				console.log(`   Time remaining: ${hours}h ${minutes}m ${seconds}s`);
-				console.log(`   Expires: ${new Date(expiry * 1000).toLocaleString()}`);
+				if (!jsonMode) console.log(`✅ Serial ${serial}: ELIGIBLE`);
+				if (!jsonMode) console.log(`   Time remaining: ${hours}h ${minutes}m ${seconds}s`);
+				if (!jsonMode) console.log(`   Expires: ${new Date(expiry * 1000).toLocaleString()}`);
 			}
 			else {
 				// Expired
 				expiredSerials.push(serial);
-				console.log(`❌ Serial ${serial}: EXPIRED`);
+				if (!jsonMode) console.log(`❌ Serial ${serial}: EXPIRED`);
 			}
+		}
+
+		if (jsonMode) {
+			const refundDetails = [];
+			for (const { serial, expiry, timeLeft } of eligibleSerials) {
+				const payment = (await readContract(iface, env, contractId, operatorId, 'getSerialPayment', [serial]))[0];
+				const hbarPaid = Number(payment.hbarPaid);
+				const lazyPaid = Number(payment.lazyPaid);
+				const hbarRefund = Math.floor((hbarPaid * Number(timing.refundPercentage)) / 100);
+				const lazyRefund = Math.floor((lazyPaid * Number(timing.refundPercentage)) / 100);
+				refundDetails.push({ serial, expiry, timeLeftSeconds: timeLeft, hbarPaid, lazyPaid, hbarRefund, lazyRefund });
+			}
+			console.log(JSON.stringify({
+				nftToken: nftTokenId.toString(),
+				refundWindowHours: Number(timing.refundWindow) / 3600,
+				refundPercentage: Number(timing.refundPercentage),
+				ownedSerials: ownedSerials,
+				eligibleSerials: refundDetails,
+				expiredSerials,
+				neverMintedSerials,
+				totalHbarRefund: refundDetails.reduce((sum, r) => sum + r.hbarRefund, 0),
+				totalLazyRefund: refundDetails.reduce((sum, r) => sum + r.lazyRefund, 0),
+			}, null, 2));
+			return;
 		}
 
 		if (neverMintedSerials.length > 0) {
@@ -138,9 +135,7 @@ const main = async () => {
 			let totalLazyRefund = 0;
 
 			for (const { serial } of eligibleSerials) {
-				const paymentCommand = minterIface.encodeFunctionData('getSerialPayment', [serial]);
-				const paymentResult = await readOnlyEVMFromMirrorNode(env, contractId, paymentCommand, operatorId, false);
-				const payment = minterIface.decodeFunctionResult('getSerialPayment', paymentResult)[0];
+				const payment = (await readContract(iface, env, contractId, operatorId, 'getSerialPayment', [serial]))[0];
 
 				const hbarPaid = Number(payment.hbarPaid);
 				const lazyPaid = Number(payment.lazyPaid);
@@ -197,11 +192,4 @@ const main = async () => {
 	catch (error) {
 		console.log('❌ Error checking refund eligibility:', error.message);
 	}
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch((error) => {
-		console.log(error);
-		process.exit(1);
-	});
+});

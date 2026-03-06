@@ -1,11 +1,11 @@
 const {
-	Client,
 	AccountId,
 	PrivateKey,
 	ContractCreateFlow,
 } = require('@hashgraph/sdk');
 const fs = require('fs');
 require('dotenv').config();
+const { createClient, runScript } = require('../lib/scriptBase');
 
 // Get operator from .env file
 const operatorKey = PrivateKey.fromString(process.env.PRIVATE_KEY);
@@ -25,35 +25,18 @@ async function contractDeployFcn(bytecode, gasLim) {
 	return [contractId, contractAddress];
 }
 
-const main = async () => {
+runScript(async () => {
 	if (contractName === undefined || contractName == null) {
 		console.log('Environment required, please specify CONTRACT_NAME for ABI in the .env file');
 		return;
 	}
 
 
-	console.log('\n-Using ENIVRONMENT:', env);
+	console.log('\n-Using ENVIRONMENT:', env);
 	console.log('\n-Using Operator:', operatorId.toString());
 
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-		console.log('deploying in *TESTNET*');
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-		client.setMirrorNetwork('mainnet-public.mirrornode.hedera.com:443');
-		console.log('deploying in *MAINNET*');
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-		console.log('deploying in *PREVIEWNET*');
-	}
-	else {
-		console.log('ERROR: Must specify either MAIN or TEST or PREVIEW as environment in .env file');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
+	client = createClient(env, operatorId, operatorKey);
+	console.log(`deploying in *${env.toUpperCase()}*`);
 
 	const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
 
@@ -66,11 +49,4 @@ const main = async () => {
 
 	console.log(`Contract created with ID: ${contractId} / ${contractAddress}`);
 
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch(error => {
-		console.error(error);
-		process.exit(1);
-	});
+});

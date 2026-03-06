@@ -1,32 +1,17 @@
-const {
-	Client,
-	AccountId,
-	PrivateKey,
-	ContractId,
-	TokenId,
-} = require('@hashgraph/sdk');
-require('dotenv').config();
-const fs = require('fs');
-const { ethers } = require('ethers');
+const { TokenId } = require('@hashgraph/sdk');
 const readlineSync = require('readline-sync');
+const { initScript, runScript } = require('../../../lib/scriptBase');
 const {
 	contractExecuteFunction,
 	readOnlyEVMFromMirrorNode,
 } = require('../../../../utils/solidityHelpers');
 const { estimateGas, logTransactionResult } = require('../../../../utils/gasHelpers');
 
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractName = 'ForeverMinter';
-const contractId = ContractId.fromString(process.env.FOREVER_MINTER_CONTRACT_ID || '');
-const env = process.env.ENVIRONMENT ?? null;
-let client;
-
-const main = async () => {
-	if (!operatorId || !operatorKey || !contractId || contractId.toString() === '0.0.0') {
-		console.log('❌ Error: Missing configuration in .env file');
-		return;
-	}
+runScript(async () => {
+	const { client, operatorId, operatorKey, contractId, env, iface } = initScript({
+		contractName: 'ForeverMinter',
+		contractEnvVar: 'FOREVER_MINTER_CONTRACT_ID',
+	});
 
 	// Parse arguments
 	if (process.argv.length < 5) {
@@ -65,31 +50,6 @@ const main = async () => {
 	console.log('\n🎁 ForeverMinter - Add Discount Tier');
 	console.log('=======================================\n');
 
-	// Setup client
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-	}
-	else {
-		console.log('❌ Error: Invalid ENVIRONMENT in .env file');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-
-	// Load ABI
-	const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
-	const minterIface = new ethers.Interface(json.abi);
-
 	try {
 		// Check if tier already exists for this token
 		console.log('🔍 Checking for existing tier...\n');
@@ -99,14 +59,14 @@ const main = async () => {
 
 		try {
 			// Try to get the tier index for this token
-			const tierIndexCommand = minterIface.encodeFunctionData('getTokenTierIndex', [tierTokenId.toSolidityAddress()]);
+			const tierIndexCommand = iface.encodeFunctionData('getTokenTierIndex', [tierTokenId.toSolidityAddress()]);
 			const tierIndexResult = await readOnlyEVMFromMirrorNode(env, contractId, tierIndexCommand, operatorId, false);
-			const tierIndex = minterIface.decodeFunctionResult('getTokenTierIndex', tierIndexResult)[0];
+			const tierIndex = iface.decodeFunctionResult('getTokenTierIndex', tierIndexResult)[0];
 
 			// If we got here, the token has a tier - fetch its details
-			const tierCommand = minterIface.encodeFunctionData('getDiscountTier', [tierIndex]);
+			const tierCommand = iface.encodeFunctionData('getDiscountTier', [tierIndex]);
 			const tierResult = await readOnlyEVMFromMirrorNode(env, contractId, tierCommand, operatorId, false);
-			existingTier = minterIface.decodeFunctionResult('getDiscountTier', tierResult)[0];
+			existingTier = iface.decodeFunctionResult('getDiscountTier', tierResult)[0];
 
 			// Check if it's active (not marked as removed)
 			if (Number(existingTier.discountPercentage) > 0) {
@@ -174,7 +134,7 @@ const main = async () => {
 		const gasInfo = await estimateGas(
 			env,
 			contractId,
-			minterIface,
+			iface,
 			operatorId,
 			'addDiscountTier',
 			[tierTokenId.toSolidityAddress(), discountPercentage, maxUsesPerSerial],
@@ -183,7 +143,7 @@ const main = async () => {
 
 		const result = await contractExecuteFunction(
 			contractId,
-			minterIface,
+			iface,
 			client,
 			gasInfo.gasLimit,
 			'addDiscountTier',
@@ -221,11 +181,4 @@ const main = async () => {
 	catch (error) {
 		console.log('❌ Error adding discount tier:', error.message);
 	}
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch((error) => {
-		console.log(error);
-		process.exit(1);
-	});
+});

@@ -1,72 +1,21 @@
-const {
-	Client,
-	AccountId,
-	PrivateKey,
-	ContractId,
-} = require('@hashgraph/sdk');
-require('dotenv').config();
-const fs = require('fs');
-const { ethers } = require('ethers');
+const { initScript, runScript } = require('../../lib/scriptBase');
 const { readOnlyEVMFromMirrorNode } = require('../../../utils/solidityHelpers');
 
-// Get operator from .env file
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractName = 'SoulboundBadgeMinter';
+const jsonMode = process.env.HEDERA_MINT_JSON === '1';
 
-const contractId = ContractId.fromString(process.env.CONTRACT_ID);
+runScript(async () => {
+	const { operatorId, contractId, env, iface: minterIface } = initScript({
+		contractName: 'SoulboundBadgeMinter',
+		contractEnvVar: 'CONTRACT_ID',
+	});
 
-const env = process.env.ENVIRONMENT ?? null;
-let client;
-
-const main = async () => {
-	if (operatorId === undefined || operatorId == null) {
-		console.log('Environment required, please specify ACCOUNT_ID in the .env file');
-		return;
+	if (!jsonMode) {
+		console.log('\n-Using ENVIRONMENT:', env);
+		console.log('\n-Using Operator:', operatorId.toString());
+		console.log('\n-Using contract:', contractId.toString());
 	}
-	else if (contractId === undefined || contractId == null) {
-		console.log('Contract ID required, please specify CONTRACT_ID in the .env file');
-		return;
-	}
-
-	console.log('\n-Using ENVIRONMENT:', env);
-	console.log('\n-Using Operator:', operatorId.toString());
-	console.log('\n-Using contract:', contractId.toString());
-	console.log('\n-Using contract name:', contractName);
-
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-		console.log('interacting in *TESTNET*');
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-		console.log('interacting in *MAINNET*');
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-		console.log('interacting in *PREVIEWNET*');
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-		console.log('interacting in *LOCAL*');
-	}
-	else {
-		console.log('ERROR: Must specify either MAIN or TEST or PREVIEW or LOCAL as environment in .env file');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-
-	// import ABI
-	const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
-	const minterIface = new ethers.Interface(json.abi);
 
 	try {
-		console.log('\n===========================================');
-		console.log('CONTRACT INFORMATION');
-		console.log('===========================================');
-
 		// Get token information
 		const tokenCommand = minterIface.encodeFunctionData('getToken');
 		const tokenResult = await readOnlyEVMFromMirrorNode(
@@ -78,13 +27,12 @@ const main = async () => {
 		);
 		const tokenAddress = minterIface.decodeFunctionResult('getToken', tokenResult);
 
-		console.log('\n📋 Token Information:');
-		if (tokenAddress[0] === '0x0000000000000000000000000000000000000000') {
-			console.log('Token: ❌ Not initialized');
-		}
-		else {
-			console.log('Token Address:', tokenAddress[0]);
+		const tokenInitialized = tokenAddress[0] !== '0x0000000000000000000000000000000000000000';
+		let maxSupplyVal = null;
+		let totalMintedVal = null;
+		let remainingVal = null;
 
+		if (tokenInitialized) {
 			// Get max supply
 			const maxSupplyCommand = minterIface.encodeFunctionData('getMaxSupply');
 			const maxSupplyResult = await readOnlyEVMFromMirrorNode(
@@ -95,8 +43,7 @@ const main = async () => {
 				false,
 			);
 			const maxSupply = minterIface.decodeFunctionResult('getMaxSupply', maxSupplyResult);
-
-			console.log('Max Supply:', Number(maxSupply[0]) > 1000000000 ? 'Unlimited' : Number(maxSupply[0]));
+			maxSupplyVal = Number(maxSupply[0]);
 
 			// Get total minted
 			const totalMintedCommand = minterIface.encodeFunctionData('totalMinted');
@@ -108,8 +55,7 @@ const main = async () => {
 				false,
 			);
 			const totalMinted = minterIface.decodeFunctionResult('totalMinted', totalMintedResult);
-
-			console.log('Total Minted:', Number(totalMinted[0]));
+			totalMintedVal = Number(totalMinted[0]);
 
 			// Get remaining supply
 			const remainingCommand = minterIface.encodeFunctionData('getRemainingSupply');
@@ -121,13 +67,10 @@ const main = async () => {
 				false,
 			);
 			const remainingSupply = minterIface.decodeFunctionResult('getRemainingSupply', remainingResult);
-
-			const remaining = Number(remainingSupply[0]);
-			console.log('Remaining Supply:', remaining > 1000000000 ? 'Unlimited' : remaining);
+			remainingVal = Number(remainingSupply[0]);
 		}
 
 		// Get admin information
-		console.log('\n👥 Admin Information:');
 		const adminsCommand = minterIface.encodeFunctionData('getAdmins');
 		const adminsResult = await readOnlyEVMFromMirrorNode(
 			env,
@@ -137,8 +80,6 @@ const main = async () => {
 			false,
 		);
 		const adminList = minterIface.decodeFunctionResult('getAdmins', adminsResult);
-
-		console.log(`Total Admins: ${adminList[0].length}`);
 
 		// Check if operator is admin
 		const isAdminCommand = minterIface.encodeFunctionData('isAdmin', [operatorId.toSolidityAddress()]);
@@ -151,10 +92,7 @@ const main = async () => {
 		);
 		const isAdmin = minterIface.decodeFunctionResult('isAdmin', isAdminResult);
 
-		console.log('You are admin:', isAdmin[0] ? '✅ Yes' : '❌ No');
-
 		// Get active badge information
-		console.log('\n🏅 Badge Information:');
 		const activeBadgesCommand = minterIface.encodeFunctionData('getActiveBadgeIds');
 		const activeBadgesResult = await readOnlyEVMFromMirrorNode(
 			env,
@@ -165,8 +103,7 @@ const main = async () => {
 		);
 		const activeBadgeIds = minterIface.decodeFunctionResult('getActiveBadgeIds', activeBadgesResult);
 
-		console.log(`Active Badges: ${activeBadgeIds[0].length}`);
-
+		const badgeSummaries = [];
 		if (activeBadgeIds[0].length > 0) {
 			for (let i = 0; i < Math.min(5, activeBadgeIds[0].length); i++) {
 				const badgeId = Number(activeBadgeIds[0][i]);
@@ -181,16 +118,17 @@ const main = async () => {
 				);
 				const [name, , totalMinted, maxSupply] = minterIface.decodeFunctionResult('getBadge', badgeResult);
 
-				console.log(`  ${badgeId}: ${name} (${Number(totalMinted)}/${Number(maxSupply) === 0 ? '∞' : Number(maxSupply)})`);
-			}
-
-			if (activeBadgeIds[0].length > 5) {
-				console.log(`  ... and ${activeBadgeIds[0].length - 5} more`);
+				badgeSummaries.push({
+					badgeId,
+					name,
+					totalMinted: Number(totalMinted),
+					maxSupply: Number(maxSupply),
+				});
 			}
 		}
 
 		// Get capacity analysis
-		console.log('\n📊 Capacity Analysis:');
+		let capacityData = null;
 		try {
 			const capacityCommand = minterIface.encodeFunctionData('getCapacityAnalysis');
 			const capacityResult = await readOnlyEVMFromMirrorNode(
@@ -202,32 +140,21 @@ const main = async () => {
 			);
 			const [tokenMaxSupply, tokenMinted, tokenRemaining, totalBadgeCapacity, reservedCapacity, hasUnlimitedBadges] = minterIface.decodeFunctionResult('getCapacityAnalysis', capacityResult);
 
-			console.log('Token Max Supply:', Number(tokenMaxSupply) > 1000000000 ? 'Unlimited' : Number(tokenMaxSupply));
-			console.log('Token Minted:', Number(tokenMinted));
-			console.log('Token Remaining:', Number(tokenRemaining) > 1000000000 ? 'Unlimited' : Number(tokenRemaining));
-			console.log('Total Badge Capacity:', Number(totalBadgeCapacity) > 1000000000 ? 'Unlimited' : Number(totalBadgeCapacity));
-			console.log('Reserved Capacity:', Number(reservedCapacity) > 1000000000 ? 'Unlimited' : Number(reservedCapacity));
-			console.log('Has Unlimited Badges:', hasUnlimitedBadges ? 'Yes' : 'No');
-
-			// Calculate utilization if not unlimited
-			if (Number(tokenMaxSupply) <= 1000000000 && Number(totalBadgeCapacity) <= 1000000000) {
-				const utilization = Number(totalBadgeCapacity) > 0 ?
-					((Number(tokenMinted) / Number(totalBadgeCapacity)) * 100).toFixed(2) : 0;
-				console.log('Capacity Utilization:', `${utilization}%`);
-			}
+			capacityData = {
+				tokenMaxSupply: Number(tokenMaxSupply),
+				tokenMinted: Number(tokenMinted),
+				tokenRemaining: Number(tokenRemaining),
+				totalBadgeCapacity: Number(totalBadgeCapacity),
+				reservedCapacity: Number(reservedCapacity),
+				hasUnlimitedBadges,
+			};
 		}
 		catch (error) {
-			console.log('Capacity analysis not available', error);
+			capacityData = null;
 		}
 
-		// Contract version and features
-		console.log('\n🔧 Contract Features:');
-		console.log('Contract Type: SoulboundBadgeMinter');
-		console.log('Multi-Badge Support: ✅ Yes');
-		console.log('Whitelist Management: ✅ Yes');
-		console.log('Admin Management: ✅ Yes');
-
 		// Get revocable status from contract
+		let revocableVal = null;
 		try {
 			const revocableCommand = minterIface.encodeFunctionData('REVOCABLE');
 			const revocableResult = await readOnlyEVMFromMirrorNode(
@@ -238,23 +165,112 @@ const main = async () => {
 				false,
 			);
 			const revocable = minterIface.decodeFunctionResult('REVOCABLE', revocableResult);
-			console.log('Revocable SBTs:', revocable[0] ? '✅ Yes' : '❌ No');
+			revocableVal = revocable[0];
 		}
 		catch (error) {
-			console.log('Revocable SBTs: ❓ Could not determine -', error.message);
+			revocableVal = null;
+		}
+
+		// JSON output
+		if (jsonMode) {
+			console.log(JSON.stringify({
+				contractId: contractId.toString(),
+				contractType: 'SoulboundBadgeMinter',
+				token: {
+					initialized: tokenInitialized,
+					address: tokenAddress[0],
+					maxSupply: maxSupplyVal,
+					totalMinted: totalMintedVal,
+					remaining: remainingVal,
+				},
+				admins: {
+					count: adminList[0].length,
+					addresses: adminList[0].map(a => a),
+					operatorIsAdmin: isAdmin[0],
+				},
+				activeBadges: {
+					count: activeBadgeIds[0].length,
+					ids: activeBadgeIds[0].map(id => Number(id)),
+					badges: badgeSummaries,
+				},
+				capacity: capacityData,
+				revocable: revocableVal,
+			}, null, 2));
+			return;
+		}
+
+		// Display output
+		console.log('\n===========================================');
+		console.log('CONTRACT INFORMATION');
+		console.log('===========================================');
+
+		console.log('\n📋 Token Information:');
+		if (!tokenInitialized) {
+			console.log('Token: ❌ Not initialized');
+		}
+		else {
+			console.log('Token Address:', tokenAddress[0]);
+			console.log('Max Supply:', maxSupplyVal > 1000000000 ? 'Unlimited' : maxSupplyVal);
+			console.log('Total Minted:', totalMintedVal);
+			console.log('Remaining Supply:', remainingVal > 1000000000 ? 'Unlimited' : remainingVal);
+		}
+
+		// Get admin information
+		console.log('\n👥 Admin Information:');
+		console.log(`Total Admins: ${adminList[0].length}`);
+		console.log('You are admin:', isAdmin[0] ? '✅ Yes' : '❌ No');
+
+		// Get active badge information
+		console.log('\n🏅 Badge Information:');
+		console.log(`Active Badges: ${activeBadgeIds[0].length}`);
+
+		if (badgeSummaries.length > 0) {
+			for (const badge of badgeSummaries) {
+				console.log(`  ${badge.badgeId}: ${badge.name} (${badge.totalMinted}/${badge.maxSupply === 0 ? '∞' : badge.maxSupply})`);
+			}
+
+			if (activeBadgeIds[0].length > 5) {
+				console.log(`  ... and ${activeBadgeIds[0].length - 5} more`);
+			}
+		}
+
+		// Get capacity analysis
+		console.log('\n📊 Capacity Analysis:');
+		if (capacityData) {
+			console.log('Token Max Supply:', capacityData.tokenMaxSupply > 1000000000 ? 'Unlimited' : capacityData.tokenMaxSupply);
+			console.log('Token Minted:', capacityData.tokenMinted);
+			console.log('Token Remaining:', capacityData.tokenRemaining > 1000000000 ? 'Unlimited' : capacityData.tokenRemaining);
+			console.log('Total Badge Capacity:', capacityData.totalBadgeCapacity > 1000000000 ? 'Unlimited' : capacityData.totalBadgeCapacity);
+			console.log('Reserved Capacity:', capacityData.reservedCapacity > 1000000000 ? 'Unlimited' : capacityData.reservedCapacity);
+			console.log('Has Unlimited Badges:', capacityData.hasUnlimitedBadges ? 'Yes' : 'No');
+
+			// Calculate utilization if not unlimited
+			if (capacityData.tokenMaxSupply <= 1000000000 && capacityData.totalBadgeCapacity <= 1000000000) {
+				const utilization = capacityData.totalBadgeCapacity > 0 ?
+					((capacityData.tokenMinted / capacityData.totalBadgeCapacity) * 100).toFixed(2) : 0;
+				console.log('Capacity Utilization:', `${utilization}%`);
+			}
+		}
+		else {
+			console.log('Capacity analysis not available');
+		}
+
+		// Contract version and features
+		console.log('\n🔧 Contract Features:');
+		console.log('Contract Type: SoulboundBadgeMinter');
+		console.log('Multi-Badge Support: ✅ Yes');
+		console.log('Whitelist Management: ✅ Yes');
+		console.log('Admin Management: ✅ Yes');
+
+		if (revocableVal !== null) {
+			console.log('Revocable SBTs:', revocableVal ? '✅ Yes' : '❌ No');
+		}
+		else {
+			console.log('Revocable SBTs: ❓ Could not determine');
 		}
 
 	}
 	catch (error) {
 		console.log('❌ Error fetching contract information:', error.message);
 	}
-};
-
-main()
-	.then(() => {
-		process.exit(0);
-	})
-	.catch((error) => {
-		console.log(error);
-		process.exit(1);
-	});
+});

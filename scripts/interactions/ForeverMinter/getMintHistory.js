@@ -1,29 +1,13 @@
-const {
-	Client,
-	AccountId,
-	PrivateKey,
-	ContractId,
-	Hbar,
-	TokenId,
-} = require('@hashgraph/sdk');
-require('dotenv').config();
-const fs = require('fs');
-const { ethers } = require('ethers');
-const { readOnlyEVMFromMirrorNode } = require('../../../utils/solidityHelpers');
+const { AccountId, Hbar, TokenId } = require('@hashgraph/sdk');
+const { initScript, runScript } = require('../../lib/scriptBase');
+const { readContract } = require('../../lib/contractHelpers');
 const { getTokenDetails } = require('../../../utils/hederaMirrorHelpers');
 
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractName = 'ForeverMinter';
-const contractId = ContractId.fromString(process.env.FOREVER_MINTER_CONTRACT_ID || '');
-const env = process.env.ENVIRONMENT ?? null;
-let client;
-
-const main = async () => {
-	if (!operatorId || !operatorKey || !contractId || contractId.toString() === '0.0.0') {
-		console.log('❌ Error: Missing configuration in .env file');
-		return;
-	}
+runScript(async () => {
+	const { client, operatorId, operatorKey, contractId, env, iface } = initScript({
+		contractName: 'ForeverMinter',
+		contractEnvVar: 'FOREVER_MINTER_CONTRACT_ID',
+	});
 
 	// Optional: Check specific address
 	let targetAddress = operatorId.toSolidityAddress();
@@ -43,31 +27,6 @@ const main = async () => {
 	console.log('\n📊 ForeverMinter - Mint History');
 	console.log('==================================\n');
 
-	// Setup client
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-	}
-	else {
-		console.log('❌ Error: Invalid ENVIRONMENT in .env file');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-
-	// Load ABI
-	const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
-	const minterIface = new ethers.Interface(json.abi);
-
 	try {
 		const targetAccountId = AccountId.fromSolidityAddress(targetAddress);
 
@@ -75,9 +34,7 @@ const main = async () => {
 		console.log('');
 
 		// Get mint count using correct function
-		const mintCountCommand = minterIface.encodeFunctionData('getWalletMintCount', [targetAddress]);
-		const mintCountResult = await readOnlyEVMFromMirrorNode(env, contractId, mintCountCommand, operatorId, false);
-		const mintCount = Number(minterIface.decodeFunctionResult('getWalletMintCount', mintCountResult)[0]);
+		const mintCount = Number((await readContract(iface, env, contractId, operatorId, 'getWalletMintCount', [targetAddress]))[0]);
 
 		if (mintCount === 0) {
 			console.log('❌ No mint history found for this account');
@@ -85,15 +42,11 @@ const main = async () => {
 		}
 
 		// Get max per wallet and LAZY token info for context
-		const economicsCommand = minterIface.encodeFunctionData('getMintEconomics');
-		const economicsResult = await readOnlyEVMFromMirrorNode(env, contractId, economicsCommand, operatorId, false);
-		const economics = minterIface.decodeFunctionResult('getMintEconomics', economicsResult)[0];
+		const economics = (await readContract(iface, env, contractId, operatorId, 'getMintEconomics'))[0];
 		const maxPerWallet = Number(economics[5]); // maxMintPerWallet
 
 		// Get LAZY token details
-		const lazyDetailsCommand = minterIface.encodeFunctionData('getLazyDetails');
-		const lazyDetailsResult = await readOnlyEVMFromMirrorNode(env, contractId, lazyDetailsCommand, operatorId, false);
-		const lazyDetails = minterIface.decodeFunctionResult('getLazyDetails', lazyDetailsResult)[0];
+		const lazyDetails = (await readContract(iface, env, contractId, operatorId, 'getLazyDetails'))[0];
 		const lazyTokenId = TokenId.fromSolidityAddress(lazyDetails[0]);
 		const lazyTokenInfo = await getTokenDetails(env, lazyTokenId);
 		const lazyDecimals = parseInt(lazyTokenInfo.decimals);
@@ -139,11 +92,4 @@ const main = async () => {
 	catch (error) {
 		console.log('❌ Error loading mint history:', error.message);
 	}
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch((error) => {
-		console.log(error);
-		process.exit(1);
-	});
+});

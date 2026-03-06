@@ -1,5 +1,4 @@
 const {
-	Client,
 	AccountId,
 	PrivateKey,
 	ContractFunctionParameters,
@@ -10,6 +9,7 @@ const fs = require('fs');
 const readlineSync = require('readline-sync');
 const { contractDeployFunction } = require('../../utils/solidityHelpers');
 require('dotenv').config();
+const { createClient, runScript } = require('../lib/scriptBase');
 
 // Get operator from .env file
 const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
@@ -172,7 +172,7 @@ async function deployForeverMinter() {
 /**
  * Main deployment function
  */
-const main = async () => {
+runScript(async () => {
 	console.log('\n╔═══════════════════════════════════════════╗');
 	console.log('║   ForeverMinter v1.0.5 Deployment Tool   ║');
 	console.log('╚═══════════════════════════════════════════╝');
@@ -202,29 +202,8 @@ const main = async () => {
 	}
 
 	// Setup client
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-		console.log('\n🌐 Deploying to TESTNET');
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-		console.log('\n🌐 Deploying to MAINNET');
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-		console.log('\n🌐 Deploying to PREVIEWNET');
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-		console.log('\n🌐 Deploying to LOCAL NODE');
-	}
-	else {
-		console.log('❌ ERROR: Must specify either MAIN, TEST, PREVIEW, or LOCAL as environment in .env file');
-		process.exit(1);
-	}
-
-	client.setOperator(operatorId, operatorKey);
+	client = createClient(env, operatorId, operatorKey);
+	console.log(`\n🌐 Deploying to ${env.toUpperCase()}`);
 
 	try {
 		// Deploy contract
@@ -261,11 +240,4 @@ const main = async () => {
 		console.error('\n❌ Deployment failed:', error);
 		process.exit(1);
 	}
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch(error => {
-		console.error(error);
-		process.exit(1);
-	});
+});

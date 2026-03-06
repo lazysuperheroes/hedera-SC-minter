@@ -1,5 +1,4 @@
 const {
-	Client,
 	AccountId,
 	PrivateKey,
 	FileCreateTransaction,
@@ -11,6 +10,7 @@ const {
 const fs = require('fs');
 const readlineSync = require('readline-sync');
 require('dotenv').config();
+const { createClient, runScript } = require('../lib/scriptBase');
 
 // Get operator from .env file
 const operatorKey = PrivateKey.fromString(process.env.PRIVATE_KEY);
@@ -65,7 +65,7 @@ async function viewFileContents(bytecodeFileId) {
 	console.log(contents.toString());
 }
 
-const main = async () => {
+runScript(async () => {
 	if (contractName === undefined || contractName == null) {
 		console.log('Environment required, please specify CONTRACT_NAME for ABI in the .env file');
 		return;
@@ -73,10 +73,12 @@ const main = async () => {
 
 	const args = process.argv.slice(2);
 
-	console.log('\n-Using ENIVRONMENT:', env);
+	console.log('\n-Using ENVIRONMENT:', env);
 	console.log('\n-Using Operator:', operatorId.toString());
 
 	if (args.length == 1) {
+		// Need client for viewing file contents too
+		client = createClient(env, operatorId, operatorKey);
 		console.log('Examining file contents @:', args[0]);
 		await viewFileContents(FileId.fromString(args[0]));
 		return;
@@ -85,20 +87,8 @@ const main = async () => {
 	const proceed = readlineSync.keyInYNStrict('Do you want to upload bytecode?');
 
 	if (proceed) {
-		if (env.toUpperCase() == 'TEST') {
-			client = Client.forTestnet();
-			console.log('deploying in *TESTNET*');
-		}
-		else if (env.toUpperCase() == 'MAIN') {
-			client = Client.forMainnet();
-			console.log('deploying in *MAINNET*');
-		}
-		else {
-			console.log('ERROR: Must specify either MAIN or TEST as environment in .env file');
-			return;
-		}
-
-		client.setOperator(operatorId, operatorKey);
+		client = createClient(env, operatorId, operatorKey);
+		console.log(`deploying in *${env.toUpperCase()}*`);
 
 		const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
 
@@ -122,11 +112,4 @@ const main = async () => {
 	else {
 		console.log('User aborted');
 	}
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch(error => {
-		console.error(error);
-		process.exit(1);
-	});
+});

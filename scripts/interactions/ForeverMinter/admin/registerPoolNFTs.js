@@ -1,14 +1,7 @@
-const {
-	Client,
-	AccountId,
-	PrivateKey,
-	ContractId,
-	TokenId,
-} = require('@hashgraph/sdk');
-require('dotenv').config();
-const fs = require('fs');
-const { ethers } = require('ethers');
+const { TokenId } = require('@hashgraph/sdk');
 const readlineSync = require('readline-sync');
+const { initScript, runScript } = require('../../../lib/scriptBase');
+const { readContract } = require('../../../lib/contractHelpers');
 const {
 	contractExecuteFunction,
 	readOnlyEVMFromMirrorNode,
@@ -16,85 +9,51 @@ const {
 const { estimateGas } = require('../../../../utils/gasHelpers');
 const { getSerialsOwned } = require('../../../../utils/hederaMirrorHelpers');
 
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractName = 'ForeverMinter';
-const contractId = ContractId.fromString(process.env.FOREVER_MINTER_CONTRACT_ID || '');
-const env = process.env.ENVIRONMENT ?? null;
-let client;
+runScript(async () => {
+	const { client, operatorId, operatorKey, contractId, env, iface } = initScript({
+		contractName: 'ForeverMinter',
+		contractEnvVar: 'FOREVER_MINTER_CONTRACT_ID',
+	});
 
-/**
- * Fetch all registered serials from contract (paginated)
- */
-async function getRegisteredSerials(minterIface) {
-	const allSerials = [];
-	const pageSize = 100;
-	let offset = 0;
-	let hasMore = true;
+	/**
+	 * Fetch all registered serials from contract (paginated)
+	 */
+	async function getRegisteredSerials() {
+		const allSerials = [];
+		const pageSize = 100;
+		let offset = 0;
+		let hasMore = true;
 
-	console.log('⏳ Fetching registered serials from contract...');
+		console.log('⏳ Fetching registered serials from contract...');
 
-	while (hasMore) {
-		const command = minterIface.encodeFunctionData('getAvailableSerialsPaginated', [offset, pageSize]);
-		const result = await readOnlyEVMFromMirrorNode(env, contractId, command, operatorId, false);
-		const serials = minterIface.decodeFunctionResult('getAvailableSerialsPaginated', result)[0];
+		while (hasMore) {
+			const command = iface.encodeFunctionData('getAvailableSerialsPaginated', [offset, pageSize]);
+			const result = await readOnlyEVMFromMirrorNode(env, contractId, command, operatorId, false);
+			const serials = iface.decodeFunctionResult('getAvailableSerialsPaginated', result)[0];
 
-		if (serials.length === 0) {
-			hasMore = false;
-		}
-		else {
-			allSerials.push(...serials.map(s => Number(s)));
-			offset += pageSize;
-
-			if (serials.length < pageSize) {
+			if (serials.length === 0) {
 				hasMore = false;
 			}
+			else {
+				allSerials.push(...serials.map(s => Number(s)));
+				offset += pageSize;
+
+				if (serials.length < pageSize) {
+					hasMore = false;
+				}
+			}
 		}
-	}
 
-	return allSerials;
-}
-
-const main = async () => {
-	if (!operatorId || !operatorKey || !contractId || contractId.toString() === '0.0.0') {
-		console.log('❌ Error: Missing configuration in .env file');
-		return;
+		return allSerials;
 	}
 
 	console.log('\n📦 ForeverMinter - Register Pool NFTs');
 	console.log('========================================\n');
 
-	// Setup client
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-	}
-	else {
-		console.log('❌ Error: Invalid ENVIRONMENT in .env file');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-
-	// Load ABI
-	const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
-	const minterIface = new ethers.Interface(json.abi);
-
 	try {
 		// Step 1: Get NFT token address from contract
 		console.log('📋 Fetching NFT token information...');
-		const nftTokenCommand = minterIface.encodeFunctionData('NFT_TOKEN');
-		const nftTokenResult = await readOnlyEVMFromMirrorNode(env, contractId, nftTokenCommand, operatorId, false);
-		const nftTokenAddress = minterIface.decodeFunctionResult('NFT_TOKEN', nftTokenResult)[0];
+		const nftTokenAddress = (await readContract(iface, env, contractId, operatorId, 'NFT_TOKEN'))[0];
 		const nftTokenId = TokenId.fromSolidityAddress(nftTokenAddress);
 		console.log(`✅ NFT Token: ${nftTokenId.toString()}\n`);
 
@@ -111,7 +70,7 @@ const main = async () => {
 		console.log(`✅ Found ${ownedSerials.length} NFTs owned by contract\n`);
 
 		// Step 3: Get already registered serials
-		const registeredSerials = await getRegisteredSerials(minterIface);
+		const registeredSerials = await getRegisteredSerials();
 		console.log(`✅ Found ${registeredSerials.length} serials already registered\n`);
 
 		// Step 4: Calculate unregistered serials
@@ -251,7 +210,7 @@ const main = async () => {
 				const gasInfo = await estimateGas(
 					env,
 					contractId,
-					minterIface,
+					iface,
 					operatorId,
 					'registerNFTs',
 					[batch],
@@ -260,7 +219,7 @@ const main = async () => {
 
 				const result = await contractExecuteFunction(
 					contractId,
-					minterIface,
+					iface,
 					client,
 					gasInfo.gasLimit,
 					'registerNFTs',
@@ -309,11 +268,4 @@ const main = async () => {
 	catch (error) {
 		console.log('❌ Error registering pool NFTs:', error.message);
 	}
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch((error) => {
-		console.log(error);
-		process.exit(1);
-	});
+});

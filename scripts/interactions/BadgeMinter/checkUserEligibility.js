@@ -1,26 +1,16 @@
 const {
-	Client,
 	AccountId,
-	PrivateKey,
-	ContractId,
 } = require('@hashgraph/sdk');
-require('dotenv').config();
-const fs = require('fs');
-const { ethers } = require('ethers');
+const { initScript, runScript } = require('../../lib/scriptBase');
 const { readOnlyEVMFromMirrorNode } = require('../../../utils/solidityHelpers');
 const { homebrewPopulateAccountEvmAddress, homebrewPopulateAccountNum } = require('../../../utils/hederaMirrorHelpers');
 
-// Get operator from .env file
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractName = 'SoulboundBadgeMinter';
+runScript(async () => {
+	const { operatorId, contractId, env, iface: minterIface } = initScript({
+		contractName: 'SoulboundBadgeMinter',
+		contractEnvVar: 'CONTRACT_ID',
+	});
 
-const contractId = ContractId.fromString(process.env.CONTRACT_ID);
-
-const env = process.env.ENVIRONMENT ?? null;
-let client;
-
-const main = async () => {
 	// Check for optional arguments
 	let badgeId = null;
 	let userAccount = null;
@@ -50,47 +40,9 @@ const main = async () => {
 		return;
 	}
 
-	if (operatorId === undefined || operatorId == null) {
-		console.log('Environment required, please specify ACCOUNT_ID in the .env file');
-		return;
-	}
-	else if (contractId === undefined || contractId == null) {
-		console.log('Contract ID required, please specify CONTRACT_ID in the .env file');
-		return;
-	}
-
 	console.log('\n-Using ENVIRONMENT:', env);
 	console.log('\n-Using Operator:', operatorId.toString());
 	console.log('\n-Using contract:', contractId.toString());
-	console.log('\n-Using contract name:', contractName);
-
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-		console.log('interacting in *TESTNET*');
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-		console.log('interacting in *MAINNET*');
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-		console.log('interacting in *PREVIEWNET*');
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-		console.log('interacting in *LOCAL*');
-	}
-	else {
-		console.log('ERROR: Must specify either MAIN or TEST or PREVIEW or LOCAL as environment in .env file');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-
-	// import ABI
-	const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
-	const minterIface = new ethers.Interface(json.abi);
 
 	// Default to operator if no user specified
 	let targetUser = userAccount || operatorId.toString();
@@ -115,110 +67,38 @@ const main = async () => {
 		return;
 	}
 
-	try {
-		if (badgeId !== null) {
-			// Check specific badge eligibility
-			await checkSpecificBadgeEligibility(minterIface, badgeId, targetUser, userEvmAddress);
-		}
-		else {
-			// Check all badges eligibility
-			await checkAllBadgesEligibility(minterIface, targetUser, userEvmAddress);
-		}
-	}
-	catch (error) {
-		console.log('❌ Error checking eligibility:', error.message);
-	}
-};
+	async function checkSpecificBadgeEligibility(badgeId, userAccount, userEvmAddress) {
+		console.log('\n===========================================');
+		console.log(`BADGE ${badgeId} ELIGIBILITY CHECK`);
+		console.log('===========================================');
+		console.log('User:', userAccount);
 
-async function checkSpecificBadgeEligibility(minterIface, badgeId, userAccount, userEvmAddress) {
-	console.log('\n===========================================');
-	console.log(`BADGE ${badgeId} ELIGIBILITY CHECK`);
-	console.log('===========================================');
-	console.log('User:', userAccount);
+		try {
+			const encodedCommand = minterIface.encodeFunctionData('getUserBadgeEligibility', [badgeId, userEvmAddress]);
 
-	try {
-		const encodedCommand = minterIface.encodeFunctionData('getUserBadgeEligibility', [badgeId, userEvmAddress]);
+			const result = await readOnlyEVMFromMirrorNode(
+				env,
+				contractId,
+				encodedCommand,
+				operatorId,
+				false,
+			);
 
-		const result = await readOnlyEVMFromMirrorNode(
-			env,
-			contractId,
-			encodedCommand,
-			operatorId,
-			false,
-		);
+			const [eligible, remainingMints, alreadyMinted] = minterIface.decodeFunctionResult('getUserBadgeEligibility', result);
 
-		const [eligible, remainingMints, alreadyMinted] = minterIface.decodeFunctionResult('getUserBadgeEligibility', result);
+			console.log('\nResults:');
+			console.log('Eligible:', eligible ? '✅ Yes' : '❌ No');
+			console.log('Already Minted:', Number(alreadyMinted));
 
-		console.log('\nResults:');
-		console.log('Eligible:', eligible ? '✅ Yes' : '❌ No');
-		console.log('Already Minted:', Number(alreadyMinted));
+			if (eligible) {
+				const remaining = Number(remainingMints);
+				console.log('Remaining Mints:', remaining > 1000000000 ? 'Unlimited' : remaining);
+			}
+			else {
+				console.log('Remaining Mints: N/A (not eligible)');
+			}
 
-		if (eligible) {
-			const remaining = Number(remainingMints);
-			console.log('Remaining Mints:', remaining > 1000000000 ? 'Unlimited' : remaining);
-		}
-		else {
-			console.log('Remaining Mints: N/A (not eligible)');
-		}
-
-		// Get badge info for context
-		const badgeCommand = minterIface.encodeFunctionData('getBadge', [badgeId]);
-		const badgeResult = await readOnlyEVMFromMirrorNode(
-			env,
-			contractId,
-			badgeCommand,
-			operatorId,
-			false,
-		);
-		const [badgeName, , , , active] = minterIface.decodeFunctionResult('getBadge', badgeResult);
-
-		console.log('\nBadge Info:');
-		console.log('Name:', badgeName);
-		console.log('Active:', active ? '✅ Yes' : '❌ No');
-
-	}
-	catch (error) {
-		if (error.message.includes('TypeNotFound')) {
-			console.log(`❌ Badge ID ${badgeId} does not exist.`);
-		}
-		else {
-			console.log('❌ Error checking eligibility:', error.message);
-		}
-	}
-}
-
-async function checkAllBadgesEligibility(minterIface, userAccount, userEvmAddress) {
-	console.log('\n===========================================');
-	console.log('ALL BADGES ELIGIBILITY CHECK');
-	console.log('===========================================');
-	console.log('User:', userAccount);
-
-	try {
-		// Get active badge IDs
-		const activeCommand = minterIface.encodeFunctionData('getActiveBadgeIds');
-		const activeResult = await readOnlyEVMFromMirrorNode(
-			env,
-			contractId,
-			activeCommand,
-			operatorId,
-			false,
-		);
-		const activeBadgeIds = minterIface.decodeFunctionResult('getActiveBadgeIds', activeResult);
-
-		if (activeBadgeIds[0].length === 0) {
-			console.log('\nNo active badges found.');
-			return;
-		}
-
-		console.log(`\nChecking eligibility for ${activeBadgeIds[0].length} active badge(s):\n`);
-
-		let eligibleCount = 0;
-		let totalMinted = 0;
-
-		for (let i = 0; i < activeBadgeIds[0].length; i++) {
-			const badgeId = Number(activeBadgeIds[0][i]);
-
-			// Get badge info
+			// Get badge info for context
 			const badgeCommand = minterIface.encodeFunctionData('getBadge', [badgeId]);
 			const badgeResult = await readOnlyEVMFromMirrorNode(
 				env,
@@ -227,51 +107,114 @@ async function checkAllBadgesEligibility(minterIface, userAccount, userEvmAddres
 				operatorId,
 				false,
 			);
-			const [badgeName] = minterIface.decodeFunctionResult('getBadge', badgeResult);
+			const [badgeName, , , , active] = minterIface.decodeFunctionResult('getBadge', badgeResult);
 
-			// Get eligibility
-			const eligibilityCommand = minterIface.encodeFunctionData('getUserBadgeEligibility', [badgeId, userEvmAddress]);
-			const eligibilityResult = await readOnlyEVMFromMirrorNode(
+			console.log('\nBadge Info:');
+			console.log('Name:', badgeName);
+			console.log('Active:', active ? '✅ Yes' : '❌ No');
+
+		}
+		catch (error) {
+			if (error.message.includes('TypeNotFound')) {
+				console.log(`❌ Badge ID ${badgeId} does not exist.`);
+			}
+			else {
+				console.log('❌ Error checking eligibility:', error.message);
+			}
+		}
+	}
+
+	async function checkAllBadgesEligibility(userAccount, userEvmAddress) {
+		console.log('\n===========================================');
+		console.log('ALL BADGES ELIGIBILITY CHECK');
+		console.log('===========================================');
+		console.log('User:', userAccount);
+
+		try {
+			// Get active badge IDs
+			const activeCommand = minterIface.encodeFunctionData('getActiveBadgeIds');
+			const activeResult = await readOnlyEVMFromMirrorNode(
 				env,
 				contractId,
-				eligibilityCommand,
+				activeCommand,
 				operatorId,
 				false,
 			);
-			const [eligible, remainingMints, alreadyMinted] = minterIface.decodeFunctionResult('getUserBadgeEligibility', eligibilityResult);
+			const activeBadgeIds = minterIface.decodeFunctionResult('getActiveBadgeIds', activeResult);
 
-			console.log(`--- Badge ${badgeId}: ${badgeName} ---`);
-			console.log('Eligible:', eligible ? '✅ Yes' : '❌ No');
-			console.log('Already Minted:', Number(alreadyMinted));
-
-			if (eligible) {
-				eligibleCount++;
-				const remaining = Number(remainingMints);
-				console.log('Can Mint:', remaining > 1000000000 ? 'Unlimited' : remaining);
+			if (activeBadgeIds[0].length === 0) {
+				console.log('\nNo active badges found.');
+				return;
 			}
 
-			totalMinted += Number(alreadyMinted);
-			console.log('');
+			console.log(`\nChecking eligibility for ${activeBadgeIds[0].length} active badge(s):\n`);
+
+			let eligibleCount = 0;
+			let totalMinted = 0;
+
+			for (let i = 0; i < activeBadgeIds[0].length; i++) {
+				const badgeId = Number(activeBadgeIds[0][i]);
+
+				// Get badge info
+				const badgeCommand = minterIface.encodeFunctionData('getBadge', [badgeId]);
+				const badgeResult = await readOnlyEVMFromMirrorNode(
+					env,
+					contractId,
+					badgeCommand,
+					operatorId,
+					false,
+				);
+				const [badgeName] = minterIface.decodeFunctionResult('getBadge', badgeResult);
+
+				// Get eligibility
+				const eligibilityCommand = minterIface.encodeFunctionData('getUserBadgeEligibility', [badgeId, userEvmAddress]);
+				const eligibilityResult = await readOnlyEVMFromMirrorNode(
+					env,
+					contractId,
+					eligibilityCommand,
+					operatorId,
+					false,
+				);
+				const [eligible, remainingMints, alreadyMinted] = minterIface.decodeFunctionResult('getUserBadgeEligibility', eligibilityResult);
+
+				console.log(`--- Badge ${badgeId}: ${badgeName} ---`);
+				console.log('Eligible:', eligible ? '✅ Yes' : '❌ No');
+				console.log('Already Minted:', Number(alreadyMinted));
+
+				if (eligible) {
+					eligibleCount++;
+					const remaining = Number(remainingMints);
+					console.log('Can Mint:', remaining > 1000000000 ? 'Unlimited' : remaining);
+				}
+
+				totalMinted += Number(alreadyMinted);
+				console.log('');
+			}
+
+			console.log('===========================================');
+			console.log('SUMMARY');
+			console.log('===========================================');
+			console.log('Total Badges:', activeBadgeIds[0].length);
+			console.log('Eligible For:', eligibleCount);
+			console.log('Total Minted by User:', totalMinted);
+
 		}
+		catch (error) {
+			console.log('❌ Error checking eligibility:', error.message);
+		}
+	}
 
-		console.log('===========================================');
-		console.log('SUMMARY');
-		console.log('===========================================');
-		console.log('Total Badges:', activeBadgeIds[0].length);
-		console.log('Eligible For:', eligibleCount);
-		console.log('Total Minted by User:', totalMinted);
-
+	try {
+		if (badgeId !== null) {
+			// Check specific badge eligibility
+			await checkSpecificBadgeEligibility(badgeId, targetUser, userEvmAddress);
+		}
+		else {
+			// Check all badges eligibility
+			await checkAllBadgesEligibility(targetUser, userEvmAddress);
+		}
 	}
 	catch (error) {
 		console.log('❌ Error checking eligibility:', error.message);
 	}
-}
-
-main()
-	.then(() => {
-		process.exit(0);
-	})
-	.catch((error) => {
-		console.log(error);
-		process.exit(1);
-	});
+});

@@ -1,59 +1,21 @@
 const {
-	Client,
-	AccountId,
-	PrivateKey,
-	ContractId,
 	TokenId,
 	Hbar,
 } = require('@hashgraph/sdk');
-require('dotenv').config();
-const fs = require('fs');
-const { ethers } = require('ethers');
 const readlineSync = require('readline-sync');
+const { initScript, runScript } = require('../../../lib/scriptBase');
 const { contractExecuteFunction, readOnlyEVMFromMirrorNode } = require('../../../../utils/solidityHelpers');
 const { getTokenDetails } = require('../../../../utils/hederaMirrorHelpers');
 const { estimateGas, logTransactionResult } = require('../../../../utils/gasHelpers');
 
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractName = 'ForeverMinter';
-const contractId = ContractId.fromString(process.env.FOREVER_MINTER_CONTRACT_ID || '');
-const env = process.env.ENVIRONMENT ?? null;
-let client;
-
-const main = async () => {
-	if (!operatorId || !operatorKey || !contractId || contractId.toString() === '0.0.0') {
-		console.log('❌ Error: Missing configuration in .env file');
-		return;
-	}
+runScript(async () => {
+	const { client, operatorId, operatorKey, contractId, env, iface } = initScript({
+		contractName: 'ForeverMinter',
+		contractEnvVar: 'FOREVER_MINTER_CONTRACT_ID',
+	});
 
 	console.log('\n⚙️  ForeverMinter - Update Mint Economics');
 	console.log('============================================\n');
-
-	// Setup client
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-	}
-	else {
-		console.log('❌ Error: Invalid ENVIRONMENT in .env file');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-
-	// Load ABI
-	const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
-	const minterIface = new ethers.Interface(json.abi);
 
 	try {
 		// Fetch current economics configuration
@@ -61,7 +23,7 @@ const main = async () => {
 		console.log(`   Contract ID: ${contractId.toString()}`);
 		console.log(`   Environment: ${env}\n`);
 
-		const encodedCommand = minterIface.encodeFunctionData('getMintEconomics');
+		const encodedCommand = iface.encodeFunctionData('getMintEconomics');
 		const queryResult = await readOnlyEVMFromMirrorNode(env, contractId, encodedCommand, operatorId, false);
 
 		if (!queryResult || queryResult === '0x' || queryResult.length <= 2) {
@@ -75,12 +37,12 @@ const main = async () => {
 			return;
 		}
 
-		const currentEconomics = minterIface.decodeFunctionResult('getMintEconomics', queryResult)[0];
+		const currentEconomics = iface.decodeFunctionResult('getMintEconomics', queryResult)[0];
 
 		// Get LAZY token details for decimal precision
-		const lazyCommand = minterIface.encodeFunctionData('getLazyDetails');
+		const lazyCommand = iface.encodeFunctionData('getLazyDetails');
 		const lazyResult = await readOnlyEVMFromMirrorNode(env, contractId, lazyCommand, operatorId, false);
-		const lazyDetails = minterIface.decodeFunctionResult('getLazyDetails', lazyResult)[0];
+		const lazyDetails = iface.decodeFunctionResult('getLazyDetails', lazyResult)[0];
 		const lazyTokenId = TokenId.fromSolidityAddress(lazyDetails[0]);
 		const lazyTokenInfo = await getTokenDetails(env, lazyTokenId);
 		if (!lazyTokenInfo) {
@@ -261,7 +223,7 @@ const main = async () => {
 		const gasInfo = await estimateGas(
 			env,
 			contractId,
-			minterIface,
+			iface,
 			operatorId,
 			'updateEconomics',
 			params,
@@ -270,7 +232,7 @@ const main = async () => {
 
 		const result = await contractExecuteFunction(
 			contractId,
-			minterIface,
+			iface,
 			client,
 			gasInfo.gasLimit,
 			'updateEconomics',
@@ -311,11 +273,4 @@ const main = async () => {
 	catch (error) {
 		console.log('❌ Error updating mint economics:', error.message);
 	}
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch((error) => {
-		console.log(error);
-		process.exit(1);
-	});
+});

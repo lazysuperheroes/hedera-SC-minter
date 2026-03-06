@@ -1,26 +1,14 @@
-const {
-	Client,
-	AccountId,
-	PrivateKey,
-	ContractId,
-} = require('@hashgraph/sdk');
-require('dotenv').config();
-const fs = require('fs');
-const { ethers } = require('ethers');
+const { initScript, runScript } = require('../../lib/scriptBase');
+const { readContract } = require('../../lib/contractHelpers');
 const { readOnlyEVMFromMirrorNode } = require('../../../utils/solidityHelpers');
 
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractName = 'ForeverMinter';
-const contractId = ContractId.fromString(process.env.FOREVER_MINTER_CONTRACT_ID || '');
-const env = process.env.ENVIRONMENT ?? null;
-let client;
+const jsonMode = process.env.HEDERA_MINT_JSON === '1';
 
-const main = async () => {
-	if (!operatorId || !operatorKey || !contractId || contractId.toString() === '0.0.0') {
-		console.log('❌ Error: Missing configuration in .env file');
-		return;
-	}
+runScript(async () => {
+	const { client, operatorId, operatorKey, contractId, env, iface } = initScript({
+		contractName: 'ForeverMinter',
+		contractEnvVar: 'FOREVER_MINTER_CONTRACT_ID',
+	});
 
 	// Parse pagination from arguments
 	let page = 1;
@@ -42,47 +30,32 @@ const main = async () => {
 		}
 	}
 
-	console.log('\n📦 ForeverMinter - NFT Pool Status');
-	console.log('=====================================\n');
-
-	// Setup client
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-	}
-	else {
-		console.log('❌ Error: Invalid ENVIRONMENT in .env file');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-
-	// Load ABI
-	const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
-	const minterIface = new ethers.Interface(json.abi);
+	if (!jsonMode) console.log('\n📦 ForeverMinter - NFT Pool Status');
+	if (!jsonMode) console.log('=====================================\n');
 
 	try {
 		// Get remaining supply
-		const supplyCommand = minterIface.encodeFunctionData('getRemainingSupply');
-		const supplyResult = await readOnlyEVMFromMirrorNode(env, contractId, supplyCommand, operatorId, false);
-		const remainingSupply = Number(minterIface.decodeFunctionResult('getRemainingSupply', supplyResult)[0]);
+		const remainingSupply = Number((await readContract(iface, env, contractId, operatorId, 'getRemainingSupply'))[0]);
 
-		console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-		console.log('📊 Pool Overview');
-		console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+		if (!jsonMode) console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+		if (!jsonMode) console.log('📊 Pool Overview');
+		if (!jsonMode) console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-		console.log(`Remaining Supply: ${remainingSupply} NFTs`);
+		if (!jsonMode) console.log(`Remaining Supply: ${remainingSupply} NFTs`);
 
 		if (remainingSupply === 0) {
+			if (jsonMode) {
+				console.log(JSON.stringify({
+					remainingSupply: 0,
+					page,
+					pageSize,
+					startIndex: (page - 1) * pageSize,
+					serialsReturned: 0,
+					serials: [],
+					hasMore: false,
+				}, null, 2));
+				return;
+			}
 			console.log('\n⚠️  Pool is empty - no NFTs available for minting');
 			return;
 		}
@@ -91,15 +64,29 @@ const main = async () => {
 		const startIndex = (page - 1) * pageSize;
 		const limit = pageSize;
 
-		console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-		console.log(`📋 Available Pool Serials (Page ${page})`);
-		console.log(`   Offset: ${startIndex}, Limit: ${limit}`);
-		console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+		if (!jsonMode) console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+		if (!jsonMode) console.log(`📋 Available Pool Serials (Page ${page})`);
+		if (!jsonMode) console.log(`   Offset: ${startIndex}, Limit: ${limit}`);
+		if (!jsonMode) console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
 		// Get paginated available serials
-		const serialsCommand = minterIface.encodeFunctionData('getAvailableSerialsPaginated', [startIndex, limit]);
+		const serialsCommand = iface.encodeFunctionData('getAvailableSerialsPaginated', [startIndex, limit]);
 		const serialsResult = await readOnlyEVMFromMirrorNode(env, contractId, serialsCommand, operatorId, false);
-		const serials = minterIface.decodeFunctionResult('getAvailableSerialsPaginated', serialsResult)[0];
+		const serials = iface.decodeFunctionResult('getAvailableSerialsPaginated', serialsResult)[0];
+
+		if (jsonMode) {
+			const serialNumbers = serials.map(s => Number(s));
+			console.log(JSON.stringify({
+				remainingSupply,
+				page,
+				pageSize,
+				startIndex,
+				serialsReturned: serialNumbers.length,
+				serials: serialNumbers,
+				hasMore: serials.length === limit,
+			}, null, 2));
+			return;
+		}
 
 		if (serials.length === 0) {
 			if (startIndex === 0) {
@@ -151,11 +138,4 @@ const main = async () => {
 	catch (error) {
 		console.log('❌ Error loading pool status:', error.message);
 	}
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch((error) => {
-		console.log(error);
-		process.exit(1);
-	});
+});

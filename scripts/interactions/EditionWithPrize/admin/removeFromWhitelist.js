@@ -1,74 +1,27 @@
 const {
-	Client,
 	AccountId,
-	PrivateKey,
-	ContractId,
 } = require('@hashgraph/sdk');
 const fs = require('fs');
 const readlineSync = require('readline-sync');
-const { ethers } = require('ethers');
+const { initScript, runScript } = require('../../../lib/scriptBase');
 const {
 	contractExecuteFunction,
 } = require('../../../../utils/solidityHelpers');
 const { estimateGas } = require('../../../../utils/gasHelpers');
-require('dotenv').config();
 
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractId = ContractId.fromString(process.env.EDITION_WITH_PRIZE_CONTRACT_ID);
-const contractName = 'EditionWithPrize';
-const env = process.env.ENVIRONMENT ?? null;
+runScript(async () => {
+	const { client, operatorId, contractId, env, iface: abi } = initScript({
+		contractName: 'EditionWithPrize',
+		contractEnvVar: 'EDITION_WITH_PRIZE_CONTRACT_ID',
+	});
 
-let client;
-let abi;
-
-const main = async () => {
 	console.log('\n╔══════════════════════════════════════════╗');
 	console.log('║    Remove from Whitelist (Owner)        ║');
 	console.log('╚══════════════════════════════════════════╝\n');
 
-	if (
-		operatorKey === undefined ||
-		operatorKey == null ||
-		operatorId === undefined ||
-		operatorId == null
-	) {
-		console.log('❌ ERROR: Must specify PRIVATE_KEY & ACCOUNT_ID in .env file');
-		return;
-	}
-
 	console.log('Using account:', operatorId.toString());
 	console.log('Contract ID:', contractId.toString());
 	console.log('Environment:', env);
-
-	// Setup client
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-	}
-	else {
-		console.log('❌ ERROR: Must specify either MAIN, TEST, PREVIEW, or LOCAL as environment');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-
-	// Load contract ABI
-	const json = JSON.parse(
-		fs.readFileSync(
-			`./artifacts/contracts/${contractName}.sol/${contractName}.json`,
-		),
-	);
-	abi = new ethers.Interface(json.abi);
 
 	try {
 		// Get addresses to remove
@@ -202,11 +155,4 @@ const main = async () => {
 	catch (error) {
 		console.error('\n❌ Error removing from whitelist:', error.message || error);
 	}
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch((error) => {
-		console.error(error);
-		process.exit(1);
-	});
+});

@@ -1,37 +1,23 @@
 const {
-	Client,
-	AccountId,
-	PrivateKey,
 	ContractId,
 	TokenId,
+	AccountId,
 	Hbar,
 	HbarUnit,
 } = require('@hashgraph/sdk');
-require('dotenv').config();
 const readlineSync = require('readline-sync');
 const fs = require('fs');
-const { ethers } = require('ethers');
-const { contractExecuteFunction, readOnlyEVMFromMirrorNode, contractDeployFunction } = require('../../utils/solidityHelpers');
-const { getArgFlag, getArg } = require('../../utils/nodeHelpers');
 const path = require('path');
+const { initScript, runScript, loadABI } = require('../lib/scriptBase');
+const { readContract } = require('../lib/contractHelpers');
+const { contractExecuteFunction, contractDeployFunction } = require('../../utils/solidityHelpers');
+const { getArgFlag, getArg } = require('../../utils/nodeHelpers');
 const { getTokenDetails } = require('../../utils/hederaMirrorHelpers');
-
-// Get operator from .env file
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractName = process.env.CONTRACT_NAME ?? 'MinterContract';
-const sbtContractName = process.env.SBT_CONTRACT_NAME ?? 'SoulboundMinter';
-
-const contractId = ContractId.fromString(process.env.CONTRACT_ID);
 
 const METADATA_BATCH = process.env.METADATA_BATCH || 60;
 const MINT_PAYMENT = process.env.MINT_PAYMENT || 50;
 
-const env = process.env.ENVIRONMENT ?? null;
-let client, minterIface;
-let gas = 500_000;
-
-const main = async () => {
+runScript(async () => {
 	if (getArgFlag('h')) {
 		console.log('Usage: prepareMinter.js [-gas X] -[upload|init|reset|hardreset]');
 		console.log('			-gas X								where X is the gas overide to use');
@@ -42,30 +28,21 @@ const main = async () => {
 		return;
 	}
 
-	console.log('\n-Using ENIVRONMENT:', env);
+	const contractName = process.env.CONTRACT_NAME ?? 'MinterContract';
+	const sbtContractName = process.env.SBT_CONTRACT_NAME ?? 'SoulboundMinter';
+	const { client, operatorId, operatorKey, contractId, env, iface } = initScript({
+		contractName,
+		contractEnvVar: 'CONTRACT_ID',
+	});
+
+	let minterIface = iface;
+
+	console.log('\n-Using ENVIRONMENT:', env);
 	console.log('\n-Using Operator:', operatorId.toString());
 	console.log('\n-Using Contract:', contractId.toString());
 	console.log('CONTRACT NAME:', contractName);
 
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-		console.log('interacting in *TESTNET*');
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-		console.log('interacting in *MAINNET*');
-	}
-	else {
-		console.log('ERROR: Must specify either MAIN or TEST as environment in .env file');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-
-	// import ABI
-	const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`, 'utf8'));
-
-	minterIface = new ethers.Interface(json.abi);
+	let gas = 500_000;
 
 	if (getArgFlag('gas')) {
 		gas = Number(getArg('gas'));
@@ -170,37 +147,19 @@ const main = async () => {
 					[pinnedMetadataList[i], pinnedMetadataList[j]] = [pinnedMetadataList[j], pinnedMetadataList[i]];
 				}
 			}
-			const [status, numUploaded] = await uploadMetadata(pinnedMetadataList);
+			const [status, numUploaded] = await uploadMetadata(pinnedMetadataList, contractId, minterIface, client);
 			console.log('Upload Status:', status, 'Uploaded:', numUploaded);
 		}
 	}
 	else if (getArgFlag('init')) {
 		// check the current settings for the contract then step through setup
 		// getMintEconomics from mirror nodes
-		let encodedCommand = minterIface.encodeFunctionData('getMintEconomics');
-
-		const mintEconOutput = await readOnlyEVMFromMirrorNode(
-			env,
-			contractId,
-			encodedCommand,
-			operatorId,
-			false,
-		);
-
-		const mintEcon = minterIface.decodeFunctionResult('getMintEconomics', mintEconOutput)[0];
+		const mintEcon = (await readContract(minterIface, env, contractId, operatorId, 'getMintEconomics'))[0];
 
 		// get the $LAZY token details
-		encodedCommand = minterIface.encodeFunctionData('getLazyToken');
-
-		const lazyTokenOutput = await readOnlyEVMFromMirrorNode(
-			env,
-			contractId,
-			encodedCommand,
-			operatorId,
-			false,
+		const lazyToken = TokenId.fromSolidityAddress(
+			(await readContract(minterIface, env, contractId, operatorId, 'getLazyToken'))[0],
 		);
-
-		const lazyToken = TokenId.fromSolidityAddress(minterIface.decodeFunctionResult('getLazyToken', lazyTokenOutput)[0]);
 
 		const lazyTokenDetails = await getTokenDetails(env, lazyToken);
 
@@ -215,17 +174,7 @@ const main = async () => {
 		console.log('Max Mints per Wallet:', Number(mintEcon[7]));
 		console.log('Token to buy WL with:', TokenId.fromSolidityAddress(mintEcon[8]).toString());
 
-		encodedCommand = minterIface.encodeFunctionData('getMintTiming');
-
-		const mintTimingOutput = await readOnlyEVMFromMirrorNode(
-			env,
-			contractId,
-			encodedCommand,
-			operatorId,
-			false,
-		);
-
-		const mintTiming = minterIface.decodeFunctionResult('getMintTiming', mintTimingOutput)[0];
+		const mintTiming = (await readContract(minterIface, env, contractId, operatorId, 'getMintTiming'))[0];
 
 		console.log('Current mint timing:');
 		console.log('last mint:', mintTiming[0], ' -> ', new Date(Number(mintTiming[0]) * 1000).toISOString());
@@ -302,8 +251,7 @@ const main = async () => {
 			console.log('SBT mint selected');
 
 			// bring in the correct ABI
-			const sbtJson = JSON.parse(fs.readFileSync(`./artifacts/contracts/${sbtContractName}.sol/${sbtContractName}.json`, 'utf8'));
-			minterIface = new ethers.Interface(sbtJson.abi);
+			minterIface = loadABI(sbtContractName);
 
 			// add an option of a fixed edition mint.
 			// no need for royalties as it can't be resold
@@ -477,14 +425,17 @@ const main = async () => {
 	else {
 		console.log('No option slected, run with -h for usage pattern');
 	}
-};
+});
 
 /**
  * Method top upload the metadata using chunking
  * @param {string[]} metadata
+ * @param {import('@hashgraph/sdk').ContractId} contractId
+ * @param {import('ethers').Interface} minterIface
+ * @param {import('@hashgraph/sdk').Client} client
  * @return {[string, Number]}
  */
-async function uploadMetadata(metadata) {
+async function uploadMetadata(metadata, contractId, minterIface, client) {
 	const uploadBatchSize = METADATA_BATCH;
 	let totalLoaded = 0;
 	let result;
@@ -527,12 +478,3 @@ class NFTFeeObject {
 		this.account = account;
 	}
 }
-
-main()
-	.then(() => {
-		process.exit(0);
-	})
-	.catch(error => {
-		console.error(error);
-		process.exit(1);
-	});

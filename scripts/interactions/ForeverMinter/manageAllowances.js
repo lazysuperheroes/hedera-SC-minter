@@ -1,13 +1,10 @@
 const {
-	Client,
-	AccountId,
-	PrivateKey,
 	ContractId,
 	TokenId,
 	HbarUnit,
 } = require('@hashgraph/sdk');
-require('dotenv').config();
 const readlineSync = require('readline-sync');
+const { initScript, runScript } = require('../../lib/scriptBase');
 const {
 	setHbarAllowance,
 	setFTAllowance,
@@ -20,14 +17,11 @@ const {
 } = require('../../../utils/hederaMirrorHelpers');
 const { default: axios } = require('axios');
 
-// Get operator from .env
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const env = process.env.ENVIRONMENT ?? null;
-let client;
-
 // Token details cache to avoid duplicate API calls
 const tokenCache = new Map();
+
+// These will be set after initScript
+let operatorId, client, env;
 
 /**
  * Get HBAR allowances from mirror node
@@ -629,46 +623,21 @@ async function mainMenu(baseUrl) {
 	}
 }
 
-/**
- * Main execution
- */
-const main = async () => {
-	// Validate environment
-	if (!operatorId || !operatorKey) {
-		console.log('❌ Error: Missing ACCOUNT_ID or PRIVATE_KEY in .env file');
-		return;
-	}
+runScript(async () => {
+	const scriptContext = initScript({
+		contractName: 'ForeverMinter',
+		contractEnvVar: 'FOREVER_MINTER_CONTRACT_ID',
+	});
 
-	if (!env) {
-		console.log('❌ Error: Missing ENVIRONMENT in .env file');
-		return;
-	}
+	// Set module-level variables for use in helper functions
+	operatorId = scriptContext.operatorId;
+	client = scriptContext.client;
+	env = scriptContext.env;
 
 	console.log('\n🔐 Allowance Management Utility');
 	console.log('════════════════════════════════════════════════\n');
 	console.log(`Account: ${operatorId.toString()}`);
 	console.log(`Network: ${env.toUpperCase()}`);
-
-	// Setup client
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-	}
-	else {
-		console.log('❌ Error: Invalid ENVIRONMENT in .env file (must be TEST, MAIN, PREVIEW, or LOCAL)');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
 
 	const baseUrl = getBaseURL(env);
 
@@ -676,12 +645,4 @@ const main = async () => {
 	console.log('   allowances for the ForeverMinter contract or any spender.\n');
 
 	await mainMenu(baseUrl);
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch((error) => {
-		console.log('❌ Error:', error.message);
-		console.log(error);
-		process.exit(1);
-	});
+});

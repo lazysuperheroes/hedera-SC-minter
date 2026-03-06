@@ -1,29 +1,10 @@
-const {
-	Client,
-	AccountId,
-	PrivateKey,
-	ContractId,
-} = require('@hashgraph/sdk');
-require('dotenv').config();
-const fs = require('fs');
-const { ethers } = require('ethers');
+const { AccountId } = require('@hashgraph/sdk');
 const readlineSync = require('readline-sync');
+const { initScript, runScript } = require('../lib/scriptBase');
 const { contractExecuteFunction } = require('../../utils/solidityHelpers');
 const { homebrewPopulateAccountEvmAddress } = require('../../utils/hederaMirrorHelpers');
 
-// Get operator from .env file
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractName = process.env.CONTRACT_NAME ?? 'MinterContract';
-
-const contractId = ContractId.fromString(process.env.CONTRACT_ID);
-
-const env = process.env.ENVIRONMENT ?? null;
-let client;
-
-// check-out the deployed script - test read-only method
-const main = async () => {
-
+runScript(async () => {
 	// check for 1 argument (a comma separated list of account IDs)
 	if (process.argv.length !== 3) {
 		console.log('Usage: node addToWhiteList.js <accountID>,<accountID>,<accountID>,...<accountID>');
@@ -31,41 +12,16 @@ const main = async () => {
 		return;
 	}
 
-	if (operatorId === undefined || operatorId == null) {
-		console.log('Environment required, please specify ACCOUNT_ID in the .env file');
-		return;
-	}
-	else if (contractId === undefined || contractId == null) {
-		console.log('Contract ID required, please specify CONTRACT_ID in the .env file');
-		return;
-	}
+	const contractName = process.env.CONTRACT_NAME ?? 'MinterContract';
+	const { client, operatorId, operatorKey, contractId, env, iface } = initScript({
+		contractName,
+		contractEnvVar: 'CONTRACT_ID',
+	});
 
-	console.log('\n-Using ENIVRONMENT:', env);
+	console.log('\n-Using ENVIRONMENT:', env);
 	console.log('\n-Using Operator:', operatorId.toString());
 	console.log('\n-Using contract:', contractId.toString());
 	console.log('\n-Using contract name:', contractName);
-
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-		console.log('interacting in *TESTNET*');
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-		console.log('interacting in *MAINNET*');
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-		console.log('interacting in *PREVIEWNET*');
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-		console.log('interacting in *LOCAL*');
-	}
-	else {
-		console.log('ERROR: Must specify either MAIN or TEST or PREVIEW or LOCAL as environment in .env file');
-		return;
-	}
 
 	// parse the list of account IDs
 	const accountList = process.argv[2].split(',');
@@ -103,17 +59,11 @@ const main = async () => {
 		console.log(`Account ${i + 1}:`, account, '->', evmAddressList[i]);
 	}
 
-	client.setOperator(operatorId, operatorKey);
-
-	// import ABI
-	const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`, 'utf8'));
-	const mintIface = new ethers.Interface(json.abi);
-
 	const proceed = readlineSync.keyInYNStrict('Do you wish to add these addresses to the WL?');
 	if (proceed) {
 		const result = await contractExecuteFunction(
 			contractId,
-			mintIface,
+			iface,
 			client,
 			250_000 + (125_000 * evmAddressList.length),
 			'addToWhitelist',
@@ -125,15 +75,4 @@ const main = async () => {
 	else {
 		console.log('User aborted.');
 	}
-
-
-};
-
-main()
-	.then(() => {
-		process.exit(0);
-	})
-	.catch(error => {
-		console.error(error);
-		process.exit(1);
-	});
+});

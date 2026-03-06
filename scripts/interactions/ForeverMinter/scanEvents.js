@@ -1,22 +1,22 @@
 const {
-	ContractId,
 	TokenId,
 	Hbar,
 } = require('@hashgraph/sdk');
-require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
-const { ethers } = require('ethers');
 const readlineSync = require('readline-sync');
+const { initScript, runScript } = require('../../lib/scriptBase');
+const { readContract } = require('../../lib/contractHelpers');
 const {
 	parseContractEvents,
 	homebrewPopulateAccountNum,
 	getTokenDetails,
 } = require('../../../utils/hederaMirrorHelpers');
 
-const contractName = 'ForeverMinter';
-const contractId = ContractId.fromString(process.env.FOREVER_MINTER_CONTRACT_ID || '');
-const env = process.env.ENVIRONMENT ?? null;
+// Module-level state set by init()
+let _env = null;
+let _contractId = null;
+let _iface = null;
 
 // Caches for performance
 const accountCache = new Map();
@@ -229,7 +229,7 @@ async function formatEvent(event, environment) {
 function displayEvents(events, filter = null) {
 	console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 	console.log('📊 FOREVERMINTER EVENT SCAN');
-	console.log(`Contract: ${contractId.toString()}`);
+	console.log(`Contract: ${_contractId.toString()}`);
 	console.log(`Events Found: ${events.length}`);
 	if (filter) {
 		console.log(`Filter: ${filter}`);
@@ -305,36 +305,22 @@ function saveEventsToCSV(events, filename) {
  * Main function
  */
 const main = async () => {
-	// Validate environment
-	if (!contractId || contractId.toString() === '0.0.0') {
-		console.log('❌ Error: Missing or invalid FOREVER_MINTER_CONTRACT_ID in .env file');
-		return;
-	}
+	const { operatorId, contractId, env, iface } = initScript({
+		contractName: 'ForeverMinter',
+		contractEnvVar: 'FOREVER_MINTER_CONTRACT_ID',
+	});
 
-	if (!env) {
-		console.log('❌ Error: Missing ENVIRONMENT in .env file');
-		return;
-	}
+	// Set module-level state for helper functions
+	_env = env;
+	_contractId = contractId;
+	_iface = iface;
 
 	console.log('\n🔍 ForeverMinter Event Scanner');
 	console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-	// Load contract ABI
-	const abiPath = path.join(__dirname, '../../../abi', `${contractName}.json`);
-	if (!fs.existsSync(abiPath)) {
-		console.log(`❌ Error: ABI file not found at ${abiPath}`);
-		return;
-	}
-
-	const contractJSON = JSON.parse(fs.readFileSync(abiPath));
-	const iface = new ethers.Interface(contractJSON.abi);
-
 	// Initialize LAZY token details for formatting
 	try {
-		const { readOnlyEVMFromMirrorNode } = require('../../../utils/solidityHelpers');
-		const lazyDetailsCommand = iface.encodeFunctionData('getLazyDetails');
-		const lazyDetailsResult = await readOnlyEVMFromMirrorNode(env, contractId, lazyDetailsCommand, null, false);
-		const lazyDetails = iface.decodeFunctionResult('getLazyDetails', lazyDetailsResult)[0];
+		const lazyDetails = (await readContract(iface, env, contractId, operatorId, 'getLazyDetails'))[0];
 		const lazyTokenId = TokenId.fromSolidityAddress(lazyDetails[0]);
 		lazyTokenInfo = await getTokenDetails(env, lazyTokenId);
 		lazyDecimals = parseInt(lazyTokenInfo.decimals);
@@ -484,12 +470,7 @@ const main = async () => {
 
 // Run if called directly
 if (require.main === module) {
-	main()
-		.then(() => process.exit(0))
-		.catch(error => {
-			console.error('\n❌ Error:', error);
-			process.exit(1);
-		});
+	runScript(main);
 }
 
 module.exports = { main, formatEvent, displayEvents };

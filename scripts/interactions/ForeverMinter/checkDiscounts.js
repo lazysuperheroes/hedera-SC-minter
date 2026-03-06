@@ -1,64 +1,23 @@
-const {
-	Client,
-	AccountId,
-	PrivateKey,
-	ContractId,
-	TokenId,
-} = require('@hashgraph/sdk');
-require('dotenv').config();
-const fs = require('fs');
-const { ethers } = require('ethers');
+const { TokenId } = require('@hashgraph/sdk');
+const { initScript, runScript } = require('../../lib/scriptBase');
+const { readContract } = require('../../lib/contractHelpers');
 const { readOnlyEVMFromMirrorNode } = require('../../../utils/solidityHelpers');
 const { getSerialsOwned, parseContractEvents } = require('../../../utils/hederaMirrorHelpers');
 
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractName = 'ForeverMinter';
-const contractId = ContractId.fromString(process.env.FOREVER_MINTER_CONTRACT_ID || '');
-const env = process.env.ENVIRONMENT ?? null;
-let client;
-
-const main = async () => {
-	if (!operatorId || !operatorKey || !contractId || contractId.toString() === '0.0.0') {
-		console.log('❌ Error: Missing configuration in .env file');
-		return;
-	}
+runScript(async () => {
+	const { client, operatorId, operatorKey, contractId, env, iface } = initScript({
+		contractName: 'ForeverMinter',
+		contractEnvVar: 'FOREVER_MINTER_CONTRACT_ID',
+	});
 
 	console.log('\n🎁 ForeverMinter - Discount Eligibility');
 	console.log('==========================================\n');
-
-	// Setup client
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-	}
-	else {
-		console.log('❌ Error: Invalid ENVIRONMENT in .env file');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-
-	// Load ABI
-	const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
-	const minterIface = new ethers.Interface(json.abi);
 
 	try {
 		console.log('🔍 Checking your discount eligibility...\n');
 
 		// Get discount tier count
-		const tierCountCommand = minterIface.encodeFunctionData('getDiscountTierCount');
-		const tierCountResult = await readOnlyEVMFromMirrorNode(env, contractId, tierCountCommand, operatorId, false);
-		const tierCount = Number(minterIface.decodeFunctionResult('getDiscountTierCount', tierCountResult)[0]);
+		const tierCount = Number((await readContract(iface, env, contractId, operatorId, 'getDiscountTierCount'))[0]);
 
 		if (tierCount === 0) {
 			console.log('❌ No discount tiers configured in contract');
@@ -66,15 +25,11 @@ const main = async () => {
 		}
 
 		// Get whitelist slots
-		const wlSlotsCommand = minterIface.encodeFunctionData('getBatchWhitelistSlots', [[operatorId.toSolidityAddress()]]);
-		const wlSlotsResult = await readOnlyEVMFromMirrorNode(env, contractId, wlSlotsCommand, operatorId, false);
-		const slotsArray = minterIface.decodeFunctionResult('getBatchWhitelistSlots', wlSlotsResult)[0];
+		const slotsArray = (await readContract(iface, env, contractId, operatorId, 'getBatchWhitelistSlots', [[operatorId.toSolidityAddress()]]))[0];
 		const wlSlots = Number(slotsArray[0]);
 
 		// Get NFT token for sacrifice eligibility
-		const nftTokenCommand = minterIface.encodeFunctionData('NFT_TOKEN');
-		const nftTokenResult = await readOnlyEVMFromMirrorNode(env, contractId, nftTokenCommand, operatorId, false);
-		const nftTokenAddress = minterIface.decodeFunctionResult('NFT_TOKEN', nftTokenResult)[0];
+		const nftTokenAddress = (await readContract(iface, env, contractId, operatorId, 'NFT_TOKEN'))[0];
 		const nftTokenId = TokenId.fromSolidityAddress(nftTokenAddress);
 
 		const ownedNFTs = await getSerialsOwned(env, operatorId, nftTokenId);
@@ -93,9 +48,7 @@ const main = async () => {
 
 		console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 		// Get economics for sacrifice discount
-		const economicsCommand = minterIface.encodeFunctionData('getMintEconomics');
-		const economicsResult = await readOnlyEVMFromMirrorNode(env, contractId, economicsCommand, operatorId, false);
-		const economics = minterIface.decodeFunctionResult('getMintEconomics', economicsResult)[0];
+		const economics = (await readContract(iface, env, contractId, operatorId, 'getMintEconomics'))[0];
 		const sacrificeDiscount = Number(economics[3]);
 
 		console.log('🔥 Sacrifice Eligibility');
@@ -122,16 +75,14 @@ const main = async () => {
 		else {
 			console.log('Tier Configuration:');
 			for (let i = 0; i < tierCount; i++) {
-				const tierCommand = minterIface.encodeFunctionData('getDiscountTier', [i]);
-				const tierResult = await readOnlyEVMFromMirrorNode(env, contractId, tierCommand, operatorId, false);
-				const tier = minterIface.decodeFunctionResult('getDiscountTier', tierResult)[0];
+				const tier = (await readContract(iface, env, contractId, operatorId, 'getDiscountTier', [i]))[0];
 
 				console.log(`   Tier ${i}: ${Number(tier[0])}% discount, ${Number(tier[1])} max uses per serial`);
 			}
 
 			// Scan contract events to find which tokens use which tiers
 			console.log('\n📋 Scanning contract events for discount tokens...');
-			const allEvents = await parseContractEvents(env, contractId, minterIface, 100, true, 'desc');
+			const allEvents = await parseContractEvents(env, contractId, iface, 100, true, 'desc');
 			const discountEvents = allEvents.filter(e => e.name === 'DiscountTierUpdated');
 
 			const processedTokens = new Set();
@@ -185,13 +136,13 @@ const main = async () => {
 
 						// Batch check serial discount info
 						const tokenAddresses = ownedSerials.map(() => info.tokenAddress);
-						const batchCommand = minterIface.encodeFunctionData('getBatchSerialDiscountInfo', [
+						const batchCommand = iface.encodeFunctionData('getBatchSerialDiscountInfo', [
 							tokenAddresses,
 							ownedSerials,
 						]);
 						const batchResult = await readOnlyEVMFromMirrorNode(env, contractId, batchCommand, operatorId, false);
 						const [, usesRemaining, isEligible] =
-							minterIface.decodeFunctionResult('getBatchSerialDiscountInfo', batchResult);
+							iface.decodeFunctionResult('getBatchSerialDiscountInfo', batchResult);
 
 						for (let i = 0; i < ownedSerials.length; i++) {
 							if (isEligible[i] && Number(usesRemaining[i]) > 0) {
@@ -261,11 +212,4 @@ const main = async () => {
 	catch (error) {
 		console.log('❌ Error checking discounts:', error.message);
 	}
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch((error) => {
-		console.log(error);
-		process.exit(1);
-	});
+});

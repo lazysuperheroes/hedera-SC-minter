@@ -1,32 +1,17 @@
-const {
-	Client,
-	AccountId,
-	PrivateKey,
-	ContractId,
-	TokenId,
-} = require('@hashgraph/sdk');
-require('dotenv').config();
-const fs = require('fs');
-const { ethers } = require('ethers');
+const { TokenId } = require('@hashgraph/sdk');
 const readlineSync = require('readline-sync');
+const { initScript, runScript } = require('../../../lib/scriptBase');
 const {
 	contractExecuteFunction,
 	readOnlyEVMFromMirrorNode,
 } = require('../../../../utils/solidityHelpers');
 const { estimateGas, logTransactionResult } = require('../../../../utils/gasHelpers');
 
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractName = 'ForeverMinter';
-const contractId = ContractId.fromString(process.env.FOREVER_MINTER_CONTRACT_ID || '');
-const env = process.env.ENVIRONMENT ?? null;
-let client;
-
-const main = async () => {
-	if (!operatorId || !operatorKey || !contractId || contractId.toString() === '0.0.0') {
-		console.log('❌ Error: Missing configuration in .env file');
-		return;
-	}
+runScript(async () => {
+	const { client, operatorId, operatorKey, contractId, env, iface } = initScript({
+		contractName: 'ForeverMinter',
+		contractEnvVar: 'FOREVER_MINTER_CONTRACT_ID',
+	});
 
 	// Parse arguments
 	if (process.argv.length < 4) {
@@ -76,40 +61,15 @@ const main = async () => {
 	console.log('\n🎯 ForeverMinter - Manage Discount Usage');
 	console.log('============================================\n');
 
-	// Setup client
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-	}
-	else {
-		console.log('❌ Error: Invalid ENVIRONMENT in .env file');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-
-	// Load ABI
-	const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
-	const minterIface = new ethers.Interface(json.abi);
-
 	try {
 		// Check if token is a discount token
 		console.log('🔍 Verifying discount token configuration...\n');
 
-		const tierIndexCommand = minterIface.encodeFunctionData('getTokenTierIndex', [discountTokenId.toSolidityAddress()]);
+		const tierIndexCommand = iface.encodeFunctionData('getTokenTierIndex', [discountTokenId.toSolidityAddress()]);
 		let tierIndex;
 		try {
 			const tierIndexResult = await readOnlyEVMFromMirrorNode(env, contractId, tierIndexCommand, operatorId, false);
-			tierIndex = minterIface.decodeFunctionResult('getTokenTierIndex', tierIndexResult)[0];
+			tierIndex = iface.decodeFunctionResult('getTokenTierIndex', tierIndexResult)[0];
 		}
 		catch {
 			console.log(`❌ Error: Token ${discountTokenId.toString()} is not configured as a discount token`);
@@ -118,9 +78,9 @@ const main = async () => {
 		}
 
 		// Get tier details
-		const tierCommand = minterIface.encodeFunctionData('getDiscountTier', [tierIndex]);
+		const tierCommand = iface.encodeFunctionData('getDiscountTier', [tierIndex]);
 		const tierResult = await readOnlyEVMFromMirrorNode(env, contractId, tierCommand, operatorId, false);
-		const tier = minterIface.decodeFunctionResult('getDiscountTier', tierResult)[0];
+		const tier = iface.decodeFunctionResult('getDiscountTier', tierResult)[0];
 		const discountPercentage = Number(tier.discountPercentage);
 		const maxUsesPerSerial = Number(tier.maxUsesPerSerial);
 
@@ -135,12 +95,12 @@ const main = async () => {
 		// Query current usage
 		console.log('🔍 Querying discount usage...\n');
 
-		const usageCommand = minterIface.encodeFunctionData('getBatchSerialDiscountUsage', [
+		const usageCommand = iface.encodeFunctionData('getBatchSerialDiscountUsage', [
 			discountTokenId.toSolidityAddress(),
 			serials,
 		]);
 		const usageResult = await readOnlyEVMFromMirrorNode(env, contractId, usageCommand, operatorId, false);
-		const usageCounts = minterIface.decodeFunctionResult('getBatchSerialDiscountUsage', usageResult)[0];
+		const usageCounts = iface.decodeFunctionResult('getBatchSerialDiscountUsage', usageResult)[0];
 
 		console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 		console.log('📊 Current Discount Usage');
@@ -225,9 +185,9 @@ const main = async () => {
 
 			// Check admin status
 			console.log('\n🔐 Verifying admin rights...');
-			const isAdminCommand = minterIface.encodeFunctionData('isAdmin', [operatorId.toSolidityAddress()]);
+			const isAdminCommand = iface.encodeFunctionData('isAdmin', [operatorId.toSolidityAddress()]);
 			const isAdminResult = await readOnlyEVMFromMirrorNode(env, contractId, isAdminCommand, operatorId, false);
-			const isAdmin = minterIface.decodeFunctionResult('isAdmin', isAdminResult)[0];
+			const isAdmin = iface.decodeFunctionResult('isAdmin', isAdminResult)[0];
 
 			if (!isAdmin) {
 				console.log(`❌ Error: Account ${operatorId.toString()} is not an admin`);
@@ -242,7 +202,7 @@ const main = async () => {
 
 			const funcName = 'resetSerialDiscountUsage';
 			const params = [discountTokenId.toSolidityAddress(), serialsToReset];
-			const encodedCommand = minterIface.encodeFunctionData(funcName, params);
+			const encodedCommand = iface.encodeFunctionData(funcName, params);
 
 			const { gasLimit, gasPrice } = await estimateGas(
 				env,
@@ -266,7 +226,7 @@ const main = async () => {
 
 			const result = await contractExecuteFunction(
 				contractId,
-				minterIface,
+				iface,
 				client,
 				gasLimitFinal,
 				funcName,
@@ -291,16 +251,4 @@ const main = async () => {
 		console.log('\n❌ Error:', error.message);
 		console.log('\nFull error:', error);
 	}
-	finally {
-		if (client) {
-			client.close();
-		}
-	}
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch(error => {
-		console.error(error);
-		process.exit(1);
-	});
+});

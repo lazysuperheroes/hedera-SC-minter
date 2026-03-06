@@ -1,40 +1,31 @@
 const {
-	AccountId,
-	ContractId,
 	Hbar,
 } = require('@hashgraph/sdk');
-const fs = require('fs');
 const { ethers } = require('ethers');
+const { initScript, runScript } = require('../../lib/scriptBase');
 const {
 	readOnlyEVMFromMirrorNode,
 } = require('../../../utils/solidityHelpers');
-require('dotenv').config();
 
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractId = ContractId.fromString(process.env.EDITION_WITH_PRIZE_CONTRACT_ID);
-const contractName = 'EditionWithPrize';
-const env = process.env.ENVIRONMENT ?? null;
+const jsonMode = process.env.HEDERA_MINT_JSON === '1';
 
-let abi;
+runScript(async () => {
+	const { contractId, operatorId, env, iface: abi } = initScript({
+		contractName: 'EditionWithPrize',
+		contractEnvVar: 'EDITION_WITH_PRIZE_CONTRACT_ID',
+	});
 
-const main = async () => {
-	console.log('\n╔══════════════════════════════════════════╗');
-	console.log('║   EditionWithPrize - Contract State     ║');
-	console.log('╚══════════════════════════════════════════╝\n');
+	if (!jsonMode) {
+		console.log('\n╔══════════════════════════════════════════╗');
+		console.log('║   EditionWithPrize - Contract State     ║');
+		console.log('╚══════════════════════════════════════════╝\n');
 
-	console.log('Contract ID:', contractId.toString());
-	console.log('Environment:', env);
-
-	// Load contract ABI
-	const json = JSON.parse(
-		fs.readFileSync(
-			`./artifacts/contracts/${contractName}.sol/${contractName}.json`,
-		),
-	);
-	abi = new ethers.Interface(json.abi);
+		console.log('Contract ID:', contractId.toString());
+		console.log('Environment:', env);
+	}
 
 	try {
-		console.log('\n📊 Fetching contract state...\n');
+		if (!jsonMode) console.log('\n📊 Fetching contract state...\n');
 
 		// Get full contract state
 		const encodedCommand = abi.encodeFunctionData('getContractState');
@@ -64,8 +55,61 @@ const main = async () => {
 		const economics = decoded[11];
 		const timing = decoded[12];
 
-		// Display phase
 		const phaseNames = ['NOT_INITIALIZED', 'EDITION_MINTING', 'EDITION_SOLD_OUT', 'WINNER_SELECTED', 'PRIZE_CLAIMED'];
+
+		const hbarPrice = BigInt(economics[0]);
+		const lazyPrice = Number(economics[1]);
+		const usdcPrice = BigInt(economics[2]);
+		const wlDiscount = Number(economics[3]);
+		const maxMintPerTx = Number(economics[4]);
+		const maxMintPerWallet = Number(economics[5]);
+
+		const mintStartTime = Number(timing[0]);
+		const paused = timing[1];
+		const wlOnly = timing[2];
+
+		if (jsonMode) {
+			console.log(JSON.stringify({
+				contractId: contractId.toString(),
+				phase,
+				phaseName: phaseNames[phase],
+				tokens: {
+					editionToken,
+					prizeToken,
+					lazyToken,
+					usdcNative,
+					usdcBridged,
+				},
+				supply: {
+					editionMaxSupply,
+					editionMinted,
+					editionRemaining: editionMaxSupply - editionMinted,
+					prizeMaxSupply,
+					prizeMinted,
+					prizeAvailable: prizeMaxSupply - prizeMinted,
+				},
+				economics: {
+					mintPriceHbar: Number(hbarPrice),
+					mintPriceHbarFormatted: hbarPrice > 0 ? Hbar.fromTinybars(hbarPrice).toString() : 'FREE',
+					mintPriceLazy: lazyPrice,
+					mintPriceUsdc: Number(usdcPrice),
+					mintPriceUsdcFormatted: usdcPrice > 0 ? ethers.formatUnits(usdcPrice, 6) : 'FREE',
+					wlDiscount,
+					maxMintPerTx,
+					maxMintPerWallet,
+				},
+				timing: {
+					mintStartTime,
+					mintStartDate: mintStartTime > 0 ? new Date(mintStartTime * 1000).toISOString() : null,
+					paused,
+					wlOnly,
+				},
+				winningSerials,
+			}, null, 2));
+			return;
+		}
+
+		// Display phase
 		console.log('═══════════════════════════════════════════');
 		console.log('  CURRENT PHASE');
 		console.log('═══════════════════════════════════════════');
@@ -101,12 +145,6 @@ const main = async () => {
 		console.log('═══════════════════════════════════════════');
 		console.log('  MINT ECONOMICS');
 		console.log('═══════════════════════════════════════════');
-		const hbarPrice = BigInt(economics[0]);
-		const lazyPrice = Number(economics[1]);
-		const usdcPrice = BigInt(economics[2]);
-		const wlDiscount = Number(economics[3]);
-		const maxMintPerTx = Number(economics[4]);
-		const maxMintPerWallet = Number(economics[5]);
 
 		console.log('  Pricing:');
 		console.log(`    HBAR: ${hbarPrice > 0 ? Hbar.fromTinybars(hbarPrice).toString() : 'FREE'}`);
@@ -123,9 +161,6 @@ const main = async () => {
 		console.log('═══════════════════════════════════════════');
 		console.log('  MINT TIMING & STATUS');
 		console.log('═══════════════════════════════════════════');
-		const mintStartTime = Number(timing[0]);
-		const paused = timing[1];
-		const wlOnly = timing[2];
 
 		if (mintStartTime > 0) {
 			const startDate = new Date(mintStartTime * 1000);
@@ -234,11 +269,4 @@ const main = async () => {
 	catch (error) {
 		console.error('\n❌ Error fetching contract state:', error.message || error);
 	}
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch((error) => {
-		console.error(error);
-		process.exit(1);
-	});
+});

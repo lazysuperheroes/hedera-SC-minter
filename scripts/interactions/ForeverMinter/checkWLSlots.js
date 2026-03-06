@@ -1,26 +1,14 @@
-const {
-	Client,
-	AccountId,
-	PrivateKey,
-	ContractId,
-} = require('@hashgraph/sdk');
-require('dotenv').config();
-const fs = require('fs');
-const { ethers } = require('ethers');
-const { readOnlyEVMFromMirrorNode } = require('../../../utils/solidityHelpers');
+const { AccountId } = require('@hashgraph/sdk');
+const { initScript, runScript } = require('../../lib/scriptBase');
+const { readContract } = require('../../lib/contractHelpers');
 
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractName = 'ForeverMinter';
-const contractId = ContractId.fromString(process.env.FOREVER_MINTER_CONTRACT_ID || '');
-const env = process.env.ENVIRONMENT ?? null;
-let client;
+const jsonMode = process.env.HEDERA_MINT_JSON === '1';
 
-const main = async () => {
-	if (!operatorId || !operatorKey || !contractId || contractId.toString() === '0.0.0') {
-		console.log('❌ Error: Missing configuration in .env file');
-		return;
-	}
+runScript(async () => {
+	const { client, operatorId, operatorKey, contractId, env, iface } = initScript({
+		contractName: 'ForeverMinter',
+		contractEnvVar: 'FOREVER_MINTER_CONTRACT_ID',
+	});
 
 	// Optional: Check specific address
 	let targetAddress = operatorId.toSolidityAddress();
@@ -37,49 +25,32 @@ const main = async () => {
 		}
 	}
 
-	console.log('\n🎟️  ForeverMinter - Whitelist Slots');
-	console.log('======================================\n');
-
-	// Setup client
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-	}
-	else {
-		console.log('❌ Error: Invalid ENVIRONMENT in .env file');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-
-	// Load ABI
-	const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
-	const minterIface = new ethers.Interface(json.abi);
+	if (!jsonMode) console.log('\n🎟️  ForeverMinter - Whitelist Slots');
+	if (!jsonMode) console.log('======================================\n');
 
 	try {
 		// Get whitelist slots
-		const wlSlotsCommand = minterIface.encodeFunctionData('getBatchWhitelistSlots', [[targetAddress]]);
-		const wlSlotsResult = await readOnlyEVMFromMirrorNode(env, contractId, wlSlotsCommand, operatorId, false);
-		const slotsArray = minterIface.decodeFunctionResult('getBatchWhitelistSlots', wlSlotsResult)[0];
+		const slotsArray = (await readContract(iface, env, contractId, operatorId, 'getBatchWhitelistSlots', [[targetAddress]]))[0];
 		const wlSlots = Number(slotsArray[0]);
 
 		// Get WL slot cost and discount info
-		const economicsCommand = minterIface.encodeFunctionData('getMintEconomics');
-		const economicsResult = await readOnlyEVMFromMirrorNode(env, contractId, economicsCommand, operatorId, false);
-		const economics = minterIface.decodeFunctionResult('getMintEconomics', economicsResult)[0];
+		const economics = (await readContract(iface, env, contractId, operatorId, 'getMintEconomics'))[0];
 		const wlSlotCost = Number(economics[6]); // buyWlWithLazy
 		const slotsPerPurchase = Number(economics[7]); // buyWlSlotCount
 		const wlDiscount = Number(economics[2]); // wlDiscount
 		const sacrificeDiscount = Number(economics[3]); // sacrificeDiscount
+
+		if (jsonMode) {
+			console.log(JSON.stringify({
+				account: AccountId.fromSolidityAddress(targetAddress).toString(),
+				wlSlots,
+				wlDiscount,
+				sacrificeDiscount,
+				wlSlotCost,
+				slotsPerPurchase,
+			}, null, 2));
+			return;
+		}
 
 		console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 		console.log('🎟️  Whitelist Slot Status');
@@ -124,11 +95,4 @@ const main = async () => {
 	catch (error) {
 		console.log('❌ Error checking whitelist slots:', error.message);
 	}
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch((error) => {
-		console.log(error);
-		process.exit(1);
-	});
+});
