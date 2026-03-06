@@ -75,7 +75,7 @@ contract PrngGenerator is IPrngGenerator {
             )
         );
 
-        randNum = lo + (choice % (hi - lo));
+        randNum = lo + (choice % (hi - lo + 1));
         emit PrngEvent(
             RandomType.RANGE,
             msg.sender,

@@ -1,36 +1,20 @@
-const {
-	AccountId,
-	ContractId,
-} = require('@hashgraph/sdk');
-const fs = require('fs');
-const { ethers } = require('ethers');
+const { initScript, runScript } = require('../../lib/scriptBase');
 const {
 	readOnlyEVMFromMirrorNode,
 } = require('../../../utils/solidityHelpers');
-require('dotenv').config();
 
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractId = ContractId.fromString(process.env.EDITION_WITH_PRIZE_CONTRACT_ID);
-const contractName = 'EditionWithPrize';
-const env = process.env.ENVIRONMENT ?? null;
+runScript(async () => {
+	const { contractId, operatorId, env, iface: abi } = initScript({
+		contractName: 'EditionWithPrize',
+		contractEnvVar: 'EDITION_WITH_PRIZE_CONTRACT_ID',
+	});
 
-let abi;
-
-const main = async () => {
 	console.log('\n╔══════════════════════════════════════════╗');
 	console.log('║  EditionWithPrize - Check WL Status     ║');
 	console.log('╚══════════════════════════════════════════╝\n');
 
 	console.log('Checking for account:', operatorId.toString());
 	console.log('Contract ID:', contractId.toString());
-
-	// Load contract ABI
-	const json = JSON.parse(
-		fs.readFileSync(
-			`./artifacts/contracts/${contractName}.sol/${contractName}.json`,
-		),
-	);
-	abi = new ethers.Interface(json.abi);
 
 	try {
 		console.log('\n🔍 Checking whitelist status...\n');
@@ -121,11 +105,4 @@ const main = async () => {
 	catch (error) {
 		console.error('\n❌ Error checking whitelist status:', error.message || error);
 	}
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch((error) => {
-		console.error(error);
-		process.exit(1);
-	});
+});

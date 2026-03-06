@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity >=0.8.12 <0.9.0;
-pragma experimental ABIEncoderV2;
 
 import "./HederaTokenService.sol";
 import "./HederaResponseCodes.sol";
@@ -163,7 +162,7 @@ abstract contract FeeHelper is KeyHelper {
         address firstFeeCollector,
         address secondFeeCollector
     ) internal pure returns (IHederaTokenService.FixedFee[] memory fixedFees) {
-        fixedFees = new IHederaTokenService.FixedFee[](1);
+        fixedFees = new IHederaTokenService.FixedFee[](2);
         IHederaTokenService.FixedFee memory fixedFee1 = createFixedFeeForToken(
             amount,
             tokenId,
@@ -175,7 +174,7 @@ abstract contract FeeHelper is KeyHelper {
             secondFeeCollector
         );
         fixedFees[0] = fixedFee1;
-        fixedFees[0] = fixedFee2;
+        fixedFees[1] = fixedFee2;
     }
 
     function createSingleFixedFeeForHbars(

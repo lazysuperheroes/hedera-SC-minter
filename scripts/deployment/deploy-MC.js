@@ -1,5 +1,4 @@
 const {
-	Client,
 	AccountId,
 	PrivateKey,
 	ContractCreateFlow,
@@ -12,6 +11,7 @@ const fs = require('fs');
 const readlineSync = require('readline-sync');
 const { contractDeployFunction, linkBytecode } = require('../../utils/solidityHelpers');
 require('dotenv').config();
+const { createClient, runScript } = require('../lib/scriptBase');
 
 // Get operator from .env file
 const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
@@ -63,9 +63,9 @@ async function contractCreateFcn(bytecodeFileId, gasLim) {
 	return [contractId, contractAddress];
 }
 
-const main = async () => {
+runScript(async () => {
 
-	console.log('\n-Using ENIVRONMENT:', env);
+	console.log('\n-Using ENVIRONMENT:', env);
 	console.log('\n-Using Operator:', operatorId.toString());
 	console.log('\n-Using LSCT:', lazyContractId.toString());
 	console.log('\n-Using LAZY Token:', lazyTokenId.toString());
@@ -74,29 +74,8 @@ const main = async () => {
 	const proceed = readlineSync.keyInYNStrict('Do you want to deploy the (regular) minter?');
 
 	if (proceed) {
-		if (env.toUpperCase() == 'TEST') {
-			client = Client.forTestnet();
-			console.log('deploying in *TESTNET*');
-		}
-		else if (env.toUpperCase() == 'MAIN') {
-			client = Client.forMainnet();
-			console.log('deploying in *MAINNET*');
-		}
-		else if (env.toUpperCase() == 'PREVIEW') {
-			client = Client.forPreviewnet();
-			console.log('deploying in *PREVIEWNET*');
-		}
-		else if (env.toUpperCase() == 'LOCAL') {
-			const node = { '127.0.0.1:50211': new AccountId(3) };
-			client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-			console.log('testing in *LOCAL*');
-		}
-		else {
-			console.log('ERROR: Must specify either MAIN or TEST or PREVIEW as environment in .env file');
-			return;
-		}
-
-		client.setOperator(operatorId, operatorKey);
+		client = createClient(env, operatorId, operatorKey);
+		console.log(`deploying in *${env.toUpperCase()}*`);
 
 		let libContractId;
 		if (process.env.MINTER_LIBRARY_ID) {
@@ -142,11 +121,4 @@ const main = async () => {
 	else {
 		console.log('User aborted');
 	}
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch(error => {
-		console.error(error);
-		process.exit(1);
-	});
+});

@@ -1,6 +1,6 @@
 const { AccountId } = require('@hashgraph/sdk');
 const { default: axios } = require('axios');
-const { ethers } = require('hardhat');
+const { ethers } = require('ethers');
 
 function getBaseURL(env) {
 	if (env.toLowerCase() == 'test' || env.toLowerCase() == 'testnet') {

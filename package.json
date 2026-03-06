@@ -15,7 +15,8 @@
     "deploy-nft": "npx hardhat run scripts/deployment/deploy-MC.js",
     "deploy-sbt": "npx hardhat run scripts/deployment/deploy-SBT.js",
     "logs": "node scripts/getContractLogs.js",
-    "solhint": "solhint -f table contracts/**/*.sol"
+    "solhint": "solhint -f table contracts/**/*.sol",
+    "build": "node scripts/build/build-packages.js"
   },
   "keywords": [],
   "author": "",
@@ -23,7 +24,6 @@
   "dependencies": {
     "@eslint/eslintrc": "^3.1.0",
     "@hashgraph/sdk": "^2.19.0",
-    "abi-decoder": "^2.4.0",
     "axios": "^1.2.0",
     "dotenv": "^16.0.3",
     "ethers": "^6.13.1",
@@ -33,12 +33,12 @@
   "devDependencies": {
     "@eslint/js": "^9.5.0",
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
-    "@nomiclabs/hardhat-web3": "^2.0.0",
     "@openzeppelin/contracts": "^4.9.6",
     "chai": "^4.4.1",
     "eslint": "^9.5.0",
     "globals": "^15.6.0",
     "hardhat": "^2.12.3",
+    "abi-decoder": "^2.4.0",
     "solhint": "^5.0.1"
   }
 }

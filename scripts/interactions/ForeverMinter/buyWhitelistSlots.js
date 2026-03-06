@@ -1,34 +1,17 @@
-const {
-	Client,
-	AccountId,
-	PrivateKey,
-	ContractId,
-	TokenId,
-} = require('@hashgraph/sdk');
-require('dotenv').config();
-const fs = require('fs');
-const { ethers } = require('ethers');
+const { TokenId, ContractId } = require('@hashgraph/sdk');
 const readlineSync = require('readline-sync');
-const {
-	contractExecuteFunction,
-	readOnlyEVMFromMirrorNode,
-} = require('../../../utils/solidityHelpers');
+const { initScript, runScript } = require('../../lib/scriptBase');
+const { readContract } = require('../../lib/contractHelpers');
+const { contractExecuteFunction } = require('../../../utils/solidityHelpers');
 const { associateTokenToAccount, setFTAllowance } = require('../../../utils/hederaHelpers');
 const { checkMirrorBalance, getTokenDetails } = require('../../../utils/hederaMirrorHelpers');
 const { estimateGas, logTransactionResult } = require('../../../utils/gasHelpers');
 
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractName = 'ForeverMinter';
-const contractId = ContractId.fromString(process.env.FOREVER_MINTER_CONTRACT_ID || '');
-const env = process.env.ENVIRONMENT ?? null;
-let client;
-
-const main = async () => {
-	if (!operatorId || !operatorKey || !contractId || contractId.toString() === '0.0.0') {
-		console.log('❌ Error: Missing configuration in .env file');
-		return;
-	}
+runScript(async () => {
+	const { client, operatorId, operatorKey, contractId, env, iface } = initScript({
+		contractName: 'ForeverMinter',
+		contractEnvVar: 'FOREVER_MINTER_CONTRACT_ID',
+	});
 
 	// Parse quantity from arguments
 	if (process.argv.length < 3) {
@@ -47,36 +30,9 @@ const main = async () => {
 	console.log('\n🎟️  ForeverMinter - Buy Whitelist Slots');
 	console.log('===========================================\n');
 
-	// Setup client
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-	}
-	else {
-		console.log('❌ Error: Invalid ENVIRONMENT in .env file');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-
-	// Load ABI
-	const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
-	const minterIface = new ethers.Interface(json.abi);
-
 	try {
 		// Get LAZY token details
-		const lazyCommand = minterIface.encodeFunctionData('getLazyDetails');
-		const lazyResult = await readOnlyEVMFromMirrorNode(env, contractId, lazyCommand, operatorId, false);
-		const lazyDetails = minterIface.decodeFunctionResult('getLazyDetails', lazyResult)[0];
+		const lazyDetails = (await readContract(iface, env, contractId, operatorId, 'getLazyDetails'))[0];
 		const lazyTokenId = TokenId.fromSolidityAddress(lazyDetails[0]);
 
 		// Check LAZY token association
@@ -90,9 +46,7 @@ const main = async () => {
 		}
 
 		// Get economics for WL slot cost
-		const economicsCommand = minterIface.encodeFunctionData('getMintEconomics');
-		const economicsResult = await readOnlyEVMFromMirrorNode(env, contractId, economicsCommand, operatorId, false);
-		const economics = minterIface.decodeFunctionResult('getMintEconomics', economicsResult)[0];
+		const economics = (await readContract(iface, env, contractId, operatorId, 'getMintEconomics'))[0];
 		const wlSlotCost = Number(economics[6]);
 		const slotsPerPurchase = Number(economics[7]);
 
@@ -107,15 +61,11 @@ const main = async () => {
 		const totalCost = wlSlotCost * quantity;
 
 		// Get current WL slots
-		const wlSlotsCommand = minterIface.encodeFunctionData('getBatchWhitelistSlots', [[operatorId.toSolidityAddress()]]);
-		const wlSlotsResult = await readOnlyEVMFromMirrorNode(env, contractId, wlSlotsCommand, operatorId, false);
-		const slotsArray = minterIface.decodeFunctionResult('getBatchWhitelistSlots', wlSlotsResult)[0];
+		const slotsArray = (await readContract(iface, env, contractId, operatorId, 'getBatchWhitelistSlots', [[operatorId.toSolidityAddress()]]))[0];
 		const currentSlots = Number(slotsArray[0]);
 
 		// Get LazyGasStation for allowance
-		const gasStationCommand = minterIface.encodeFunctionData('lazyGasStation');
-		const gasStationResult = await readOnlyEVMFromMirrorNode(env, contractId, gasStationCommand, operatorId, false);
-		const gasStationAddress = minterIface.decodeFunctionResult('lazyGasStation', gasStationResult)[0];
+		const gasStationAddress = (await readContract(iface, env, contractId, operatorId, 'lazyGasStation'))[0];
 		const gasStationId = ContractId.fromSolidityAddress(gasStationAddress);
 
 		console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -166,7 +116,7 @@ const main = async () => {
 		const gasInfo = await estimateGas(
 			env,
 			contractId,
-			minterIface,
+			iface,
 			operatorId,
 			'buyWhitelistWithLazy',
 			[quantity],
@@ -175,7 +125,7 @@ const main = async () => {
 
 		const result = await contractExecuteFunction(
 			contractId,
-			minterIface,
+			iface,
 			client,
 			gasInfo.gasLimit,
 			'buyWhitelistWithLazy',
@@ -209,11 +159,4 @@ const main = async () => {
 	catch (error) {
 		console.log('❌ Error during purchase:', error.message);
 	}
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch((error) => {
-		console.log(error);
-		process.exit(1);
-	});
+});

@@ -15,7 +15,6 @@ const {
 	contractDeployFunction,
 	readOnlyEVMFromMirrorNode,
 	contractExecuteFunction,
-	// linkBytecode,
 } = require('../utils/solidityHelpers');
 const { sleep } = require('../utils/nodeHelpers');
 const {
@@ -30,6 +29,7 @@ const {
 const { checkMirrorBalance, checkMirrorHbarBalance, getTokenDetails } = require('../utils/hederaMirrorHelpers');
 const { fail } = require('assert');
 const { ethers } = require('ethers');
+const { ZERO_ADDRESS, ADDRESS_REGEX } = require('./helpers/constants');
 
 require('dotenv').config();
 
@@ -37,15 +37,12 @@ require('dotenv').config();
 let operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
 let operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
 const contractName = 'SoulboundMinter';
-// const libraryName = 'MinterLibrary';
 const lazyContractCreator = 'FungibleTokenCreator';
 const env = process.env.ENVIRONMENT ?? null;
 const lazyBurnPerc = 25;
 const MINT_PAYMENT = process.env.MINT_PAYMENT || 50;
 const LAZY_DECIMAL = process.env.LAZY_DECIMALS ?? 1;
 const LAZY_MAX_SUPPLY = process.env.LAZY_MAX_SUPPLY ?? 250_000_000;
-
-const addressRegex = /(\d+\.\d+\.[1-9]\d+)/i;
 
 // reused variable
 let contractId;
@@ -56,8 +53,6 @@ let alicePK, aliceId;
 let wlTokenId, extendedTestingTokenId;
 let lazyTokenId, lazySCT;
 let minterIface, lazyIface;
-
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 describe('Deployment: ', function () {
 	it('Should deploy the contract and setup conditions', async function () {
@@ -70,7 +65,7 @@ describe('Deployment: ', function () {
 			process.exit(1);
 		}
 
-		console.log('\n-Using ENIVRONMENT:', env);
+		console.log('\n-Using ENVIRONMENT:', env);
 
 		if (env.toUpperCase() == 'TEST') {
 			client = Client.forTestnet();
@@ -156,7 +151,7 @@ describe('Deployment: ', function () {
 				`Lazy Token Creator contract created with ID: ${lazySCT} / ${lazySCT.toSolidityAddress()}`,
 			);
 
-			expect(lazySCT.toString().match(addressRegex).length == 2).to.be.true;
+			expect(lazySCT.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 
 			// mint the $LAZY FT
 			await mintLazy(
@@ -171,8 +166,8 @@ describe('Deployment: ', function () {
 			console.log('$LAZY Token minted:', lazyTokenId.toString());
 		}
 
-		expect(lazySCT.toString().match(addressRegex).length == 2).to.be.true;
-		expect(lazyTokenId.toString().match(addressRegex).length == 2).to.be.true;
+		expect(lazySCT.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
+		expect(lazyTokenId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 
 		// check if operator has $LAZY tokens on hand else draw down from the Lazy SCT
 		const operatorLazyBal = await checkMirrorBalance(env, operatorId, lazyTokenId);
@@ -188,22 +183,7 @@ describe('Deployment: ', function () {
 			expect(result).to.be.equal('SUCCESS');
 		}
 
-		// deploy library contract
-		// REMOVED AS WE HAVE REFACTORED TO INTERNAL FUNCTIONS
-		// console.log('\n-Deploying library:', libraryName);
-
-		// const libraryBytecode = JSON.parse(fs.readFileSync(`./artifacts/contracts/${libraryName}.sol/${libraryName}.json`)).bytecode;
-
-		// const [libContractId] = await contractDeployFunction(client, libraryBytecode, 500_000);
-		// console.log(`Library created with ID: ${libContractId} / ${libContractId.toSolidityAddress()}`);
-
 		const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
-
-		// const contractBytecode = json.bytecode;
-
-		// // replace library address in bytecode
-		// console.log('\n-Linking library address in bytecode...');
-		// const readyToDeployBytecode = linkBytecode(contractBytecode, [libraryName], [libContractId]);
 
 		// import ABI
 		minterIface = new ethers.Interface(json.abi);
@@ -224,7 +204,7 @@ describe('Deployment: ', function () {
 
 		console.log('\n-Testing:', contractName);
 
-		expect(contractId.toString().match(addressRegex).length == 2).to.be.true;
+		expect(contractId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 
 		// deploy a revocable contract
 		const revocableConstructorParams = new ContractFunctionParameters()
@@ -236,7 +216,7 @@ describe('Deployment: ', function () {
 		[revocableContractId] = await contractDeployFunction(client, json.bytecode, gasLimit, revocableConstructorParams);
 
 		console.log(`Revocable Contract created with ID: ${revocableContractId} / ${revocableContractId.toSolidityAddress()}`);
-		expect(revocableContractId.toString().match(addressRegex).length == 2).to.be.true;
+		expect(revocableContractId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 
 		// check if Alice has $LAZY associated else associate the token
 		const aliceLazyBal = await checkMirrorBalance(env, aliceId, lazyTokenId);
@@ -471,7 +451,7 @@ describe('Check SC deployment...', function () {
 		}
 		const tokenId = TokenId.fromSolidityAddress(result[1][0]);
 		console.log('Token Created:', tokenId.toString(), 'tx:', result[2]?.transactionId?.toString());
-		expect(tokenId.toString().match(addressRegex).length == 2).to.be.true;
+		expect(tokenId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 	});
 
 	it('Cannot add more metadata - given no capacity', async function () {
@@ -555,7 +535,7 @@ describe('Check SC deployment...', function () {
 		}
 		const tokenId = TokenId.fromSolidityAddress(newMint[1][0]);
 		console.log('Token Created:', tokenId.toString());
-		expect(tokenId.toString().match(addressRegex).length == 2).to.be.true;
+		expect(tokenId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 	});
 
 	it('Can add more metadata - given spare capacity', async function () {
@@ -651,7 +631,7 @@ describe('Check SC deployment...', function () {
 
 		const tokenId = TokenId.fromSolidityAddress(newMint[1][0]);
 		console.log('Token Created:', tokenId.toString(), ' / ', tokenId.toSolidityAddress());
-		expect(tokenId.toString().match(addressRegex).length == 2).to.be.true;
+		expect(tokenId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 
 		// pass the token on to the later methods.
 		extendedTestingTokenId = tokenId;
@@ -701,7 +681,7 @@ describe('Check SC deployment...', function () {
 
 		const tokenId = TokenId.fromSolidityAddress(newMint[1][0]);
 		console.log('Token Created:', tokenId.toString(), ' / ', tokenId.toSolidityAddress());
-		expect(tokenId.toString().match(addressRegex).length == 2).to.be.true;
+		expect(tokenId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 		expect(Number(newMint[1][1]) == 180).to.be.true;
 
 		// pass the token on to the later methods.
@@ -2163,7 +2143,7 @@ describe('Test revocable SBT functions...', function () {
 		}
 		const revocableToken = TokenId.fromSolidityAddress(result[1][0]);
 		console.log('Token Created:', revocableToken.toString(), 'tx:', result[2]?.transactionId?.toString());
-		expect(revocableToken.toString().match(addressRegex).length == 2).to.be.true;
+		expect(revocableToken.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 
 		// associate the token to the alice account
 		result = await associateTokenToAccount(client, aliceId, alicePK, revocableToken);

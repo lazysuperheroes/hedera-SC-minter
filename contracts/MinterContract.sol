@@ -65,7 +65,7 @@ import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+
 
 contract MinterContract is ExpiryHelper, Ownable, ReentrancyGuard {
     using EnumerableMap for EnumerableMap.AddressToUintMap;
@@ -75,7 +75,7 @@ contract MinterContract is ExpiryHelper, Ownable, ReentrancyGuard {
     using SafeCast for int64;
     using SafeCast for int256;
     using Address for address;
-    using Strings for string;
+
     using Bits for uint256;
 
     // list of WL addresses
@@ -445,8 +445,13 @@ contract MinterContract is ExpiryHelper, Ownable, ReentrancyGuard {
             if (msg.value < totalHbarCost) revert NotEnoughHbar();
         }
 
+        // refund excess HBAR
+        if (msg.value > totalHbarCost) {
+            Address.sendValue(payable(msg.sender), msg.value - totalHbarCost);
+        }
+
         // pop the _metadata
-        _metadataForMint = selectMetdataToMint(
+        _metadataForMint = selectMetadataToMint(
             metadata,
             _numberToMint,
             cid,
@@ -555,11 +560,11 @@ contract MinterContract is ExpiryHelper, Ownable, ReentrancyGuard {
         if (_payer != address(this)) {
             // check the payer has the required amount && the allowance is in place
             if (
-                IERC20(lazyDetails.lazyToken).balanceOf(_payer) < _amount &&
+                IERC20(lazyDetails.lazyToken).balanceOf(_payer) < _amount ||
                 IERC20(lazyDetails.lazyToken).allowance(
                     _payer,
                     address(this)
-                ) >=
+                ) <
                 _amount
             ) revert NotEnoughLazy();
             bool success = IERC20(lazyDetails.lazyToken).transferFrom(
@@ -668,7 +673,7 @@ contract MinterContract is ExpiryHelper, Ownable, ReentrancyGuard {
     ) external returns (uint256 _wlSpotsPurchased) {
         if (mintEconomics.wlToken == address(0)) revert NoWLToken();
 
-        for (uint8 i = 0; i < _serials.length; i++) {
+        for (uint256 i = 0; i < _serials.length; i++) {
             // check no double dipping
             if (wlSerialsUsed.contains(_serials[i])) revert WLTokenUsed();
 
@@ -949,8 +954,9 @@ contract MinterContract is ExpiryHelper, Ownable, ReentrancyGuard {
         batchSize = _batchSize;
     }
 
-    /// @param _lbp new Lazy SC Treasury address
+    /// @param _lbp new Lazy burn percentage (0-100)
     function updateLazyBurnPercentage(uint256 _lbp) external onlyOwner {
+        if (_lbp > 100) revert BadArguments();
         lazyDetails.lazyBurnPerc = _lbp;
         emit MinterContractMessage(
             ContractEventType.UPDATE_LAZY_BURN_PERCENTAGE,
@@ -969,8 +975,9 @@ contract MinterContract is ExpiryHelper, Ownable, ReentrancyGuard {
         );
     }
 
-    /// @param _wlDiscount as percentage
+    /// @param _wlDiscount as percentage (0-100)
     function updateWlDiscount(uint256 _wlDiscount) external onlyOwner {
+        if (_wlDiscount > 100) revert BadArguments();
         mintEconomics.wlDiscount = _wlDiscount;
         emit MinterContractMessage(
             ContractEventType.UPDATE_WL_DISCOUNT,
@@ -1394,7 +1401,7 @@ contract MinterContract is ExpiryHelper, Ownable, ReentrancyGuard {
     // Internal Helper Functions (formerly library)
     // ============================================
 
-    function selectMetdataToMint(
+    function selectMetadataToMint(
         string[] storage metadata_,
         uint256 numberToMint,
         string storage cid_,

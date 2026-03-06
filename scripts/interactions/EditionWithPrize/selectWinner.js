@@ -1,75 +1,24 @@
-const {
-	Client,
-	AccountId,
-	PrivateKey,
-	ContractId,
-} = require('@hashgraph/sdk');
-const fs = require('fs');
 const readlineSync = require('readline-sync');
-const { ethers } = require('ethers');
+const { initScript, runScript } = require('../../lib/scriptBase');
 const {
 	contractExecuteFunction,
 	readOnlyEVMFromMirrorNode,
 } = require('../../../utils/solidityHelpers');
 const { estimateGas } = require('../../../utils/gasHelpers');
-require('dotenv').config();
 
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractId = ContractId.fromString(process.env.EDITION_WITH_PRIZE_CONTRACT_ID);
-const contractName = 'EditionWithPrize';
-const env = process.env.ENVIRONMENT ?? null;
+runScript(async () => {
+	const { client, operatorId, contractId, env, iface: abi } = initScript({
+		contractName: 'EditionWithPrize',
+		contractEnvVar: 'EDITION_WITH_PRIZE_CONTRACT_ID',
+	});
 
-let client;
-let abi;
-
-const main = async () => {
 	console.log('\n╔══════════════════════════════════════════╗');
 	console.log('║   EditionWithPrize - Select Winner(s)   ║');
 	console.log('╚══════════════════════════════════════════╝\n');
 
-	if (
-		operatorKey === undefined ||
-		operatorKey == null ||
-		operatorId === undefined ||
-		operatorId == null
-	) {
-		console.log('❌ ERROR: Must specify PRIVATE_KEY & ACCOUNT_ID in .env file');
-		return;
-	}
-
 	console.log('Using account:', operatorId.toString());
 	console.log('Contract ID:', contractId.toString());
 	console.log('Environment:', env);
-
-	// Setup client
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-	}
-	else {
-		console.log('❌ ERROR: Must specify either MAIN, TEST, PREVIEW, or LOCAL as environment');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-
-	// Load contract ABI
-	const json = JSON.parse(
-		fs.readFileSync(
-			`./artifacts/contracts/${contractName}.sol/${contractName}.json`,
-		),
-	);
-	abi = new ethers.Interface(json.abi);
 
 	try {
 		// Step 1: Get contract state
@@ -217,40 +166,33 @@ const main = async () => {
 			console.log('   The algorithm may need additional iterations for duplicate handling.');
 		}
 	}
-};
 
-/**
- * Get contract state
- */
-async function getContractState() {
-	const encodedCommand = abi.encodeFunctionData('getContractState');
-	const result = await readOnlyEVMFromMirrorNode(
-		env,
-		contractId,
-		encodedCommand,
-		operatorId,
-		false,
-	);
+	/**
+	 * Get contract state
+	 */
+	async function getContractState() {
+		const encodedCommand = abi.encodeFunctionData('getContractState');
+		const result = await readOnlyEVMFromMirrorNode(
+			env,
+			contractId,
+			encodedCommand,
+			operatorId,
+			false,
+		);
 
-	const decoded = abi.decodeFunctionResult('getContractState', result);
+		const decoded = abi.decodeFunctionResult('getContractState', result);
 
-	const state = {
-		phase: Number(decoded[0]),
-		editionToken: decoded[1],
-		prizeToken: decoded[2],
-		editionMaxSupply: Number(decoded[6]),
-		prizeMaxSupply: Number(decoded[7]),
-		editionMinted: Number(decoded[8]),
-		prizeMinted: Number(decoded[9]),
-		winningSerials: decoded[10].map(s => Number(s)),
-	};
+		const state = {
+			phase: Number(decoded[0]),
+			editionToken: decoded[1],
+			prizeToken: decoded[2],
+			editionMaxSupply: Number(decoded[6]),
+			prizeMaxSupply: Number(decoded[7]),
+			editionMinted: Number(decoded[8]),
+			prizeMinted: Number(decoded[9]),
+			winningSerials: decoded[10].map(s => Number(s)),
+		};
 
-	return state;
-}
-
-main()
-	.then(() => process.exit(0))
-	.catch((error) => {
-		console.error(error);
-		process.exit(1);
-	});
+		return state;
+	}
+});

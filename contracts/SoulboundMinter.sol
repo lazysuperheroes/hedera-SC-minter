@@ -65,7 +65,7 @@ import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+
 
 // Minter Contract to mint Soulbound NFTs
 contract SoulboundMinter is ExpiryHelper, Ownable, ReentrancyGuard {
@@ -76,7 +76,7 @@ contract SoulboundMinter is ExpiryHelper, Ownable, ReentrancyGuard {
     using SafeCast for int64;
     using SafeCast for int256;
     using Address for address;
-    using Strings for string;
+
     using Bits for uint256;
 
     // list of WL addresses
@@ -463,6 +463,11 @@ contract SoulboundMinter is ExpiryHelper, Ownable, ReentrancyGuard {
             if (msg.value < totalHbarCost) revert NotEnoughHbar();
         }
 
+        // refund excess HBAR
+        if (msg.value > totalHbarCost) {
+            Address.sendValue(payable(_onBehalfOf), msg.value - totalHbarCost);
+        }
+
         if (fixedEdition) {
             _metadataForMint = new bytes[](_numberToMint);
             for (uint256 i = 0; i < _numberToMint; ) {
@@ -472,7 +477,7 @@ contract SoulboundMinter is ExpiryHelper, Ownable, ReentrancyGuard {
                 }
             }
         } else {
-            _metadataForMint = selectMetdataToMint(
+            _metadataForMint = selectMetadataToMint(
                 metadata,
                 _numberToMint,
                 cid,
@@ -611,11 +616,11 @@ contract SoulboundMinter is ExpiryHelper, Ownable, ReentrancyGuard {
         if (_payer != address(this)) {
             // check the payer has the required amount && the allowance is in place
             if (
-                IERC20(lazyDetails.lazyToken).balanceOf(_payer) < _amount &&
+                IERC20(lazyDetails.lazyToken).balanceOf(_payer) < _amount ||
                 IERC20(lazyDetails.lazyToken).allowance(
                     _payer,
                     address(this)
-                ) >=
+                ) <
                 _amount
             ) revert NotEnoughLazy();
 
@@ -1033,8 +1038,9 @@ contract SoulboundMinter is ExpiryHelper, Ownable, ReentrancyGuard {
         batchSize = _batchSize;
     }
 
-    /// @param _lbp new Lazy SC Treasury address
+    /// @param _lbp new Lazy burn percentage (0-100)
     function updateLazyBurnPercentage(uint256 _lbp) external onlyOwner {
+        if (_lbp > 100) revert BadArguments();
         lazyDetails.lazyBurnPerc = _lbp;
         emitMessage(
             ContractEventType.UPDATE_LAZY_BURN_PERCENTAGE,
@@ -1049,8 +1055,9 @@ contract SoulboundMinter is ExpiryHelper, Ownable, ReentrancyGuard {
         emitMessage(ContractEventType.UPDATE_MAX_MINT, msg.sender, _maxMint);
     }
 
-    /// @param _wlDiscount as percentage
+    /// @param _wlDiscount as percentage (0-100)
     function updateWlDiscount(uint256 _wlDiscount) external onlyOwner {
+        if (_wlDiscount > 100) revert BadArguments();
         mintEconomics.wlDiscount = _wlDiscount;
         emitMessage(
             ContractEventType.UPDATE_WL_DISCOUNT,
@@ -1476,7 +1483,7 @@ contract SoulboundMinter is ExpiryHelper, Ownable, ReentrancyGuard {
     // Internal Helper Functions (formerly library)
     // ============================================
 
-    function selectMetdataToMint(
+    function selectMetadataToMint(
         string[] storage metadata_,
         uint256 numberToMint,
         string storage cid_,
@@ -1548,7 +1555,7 @@ contract SoulboundMinter is ExpiryHelper, Ownable, ReentrancyGuard {
     ) internal returns (uint256 _wlSpotsPurchased) {
         if (_wlToken == address(0)) revert NoWLToken();
 
-        for (uint8 i = 0; i < _serials.length; i++) {
+        for (uint256 i = 0; i < _serials.length; i++) {
             // check no double dipping
             if (wlSerialsUsed_.contains(_serials[i])) revert WLTokenUsed();
             // check user owns the token

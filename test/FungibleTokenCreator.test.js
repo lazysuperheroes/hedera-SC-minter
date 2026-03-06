@@ -25,8 +25,7 @@ const {
 	TransactionId,
 } = require('@hashgraph/sdk');
 const fs = require('fs');
-const Web3 = require('web3');
-const web3 = new Web3();
+const { ethers } = require('ethers');
 const { expect } = require('chai');
 const { describe, it, after } = require('mocha');
 
@@ -132,6 +131,9 @@ describe('Mint the fungible token', function () {
 		expect(tokenId.toString().match(addressRegex).length == 2).to.be.true;
 	});
 
+	// Skipped: Hedera security model change requires the fee collector to sign the token
+	// creation transaction when custom fees are set. The contract-based approach can no
+	// longer set fees at creation time without the collector's signature.
 	it.skip('Owner mints a FT with fixed fees - security model shift breaks this', async function () {
 		contractFTSupply = 100000;
 		client.setOperator(operatorId, operatorKey);
@@ -143,6 +145,8 @@ describe('Mint the fungible token', function () {
 		expect(TokenId.fromSolidityAddress(tokenIdAsSolidityAddress).toString().match(addressRegex).length == 2).to.be.true;
 	});
 
+	// Skipped: Same Hedera security model change as above — fractional fee collector
+	// must sign the token creation transaction.
 	it.skip('Owner mints a FT with Fractional fees - security model shift breaks this', async function () {
 		contractFTSupply = 100000;
 		client.setOperator(operatorId, operatorKey);
@@ -387,15 +391,6 @@ describe('Interaction: ', function () {
 
 	});
 
-	it('Retrieve hbar with low level call', async function () {
-		client.setOperator(operatorId, operatorKey);
-
-		const amount = 5;
-		const result = await callHbar(amount);
-
-		expect(result).to.be.equal('SUCCESS');
-	});
-
 	it('Retrieve Hbar with transfer', async function () {
 		client.setOperator(operatorId, operatorKey);
 
@@ -546,7 +541,6 @@ async function contractExecuteFcn(cId, gasLim, fcnName, params, amountHbar) {
 }
 
 async function contractExecuteWithStructArgs(cId, gasLim, fcnName, params, amountHbar, clientToUse = client) {
-	// use web3.eth.abi to encode the struct for sending.
 	// console.log('pre-encode:', JSON.stringify(params, null, 4));
 	const functionCallAsUint8Array = await encodeFunctionCall(fcnName, params);
 
@@ -571,11 +565,9 @@ async function contractExecuteWithStructArgs(cId, gasLim, fcnName, params, amoun
  * @param resultAsBytes a byte array containing the execution result
  */
 function decodeFunctionResult(functionName, resultAsBytes) {
-	const functionAbi = abi.find(func => func.name === functionName);
-	const functionParameters = functionAbi.outputs;
+	const iface = new ethers.Interface(abi);
 	const resultHex = '0x'.concat(Buffer.from(resultAsBytes).toString('hex'));
-	const result = web3.eth.abi.decodeParameters(functionParameters, resultHex);
-	return result;
+	return iface.decodeFunctionResult(functionName, resultHex);
 }
 
 /**
@@ -585,9 +577,9 @@ function decodeFunctionResult(functionName, resultAsBytes) {
  * @returns {Buffer} encoded function call
  */
 function encodeFunctionCall(functionName, parameters) {
-	const functionAbi = abi.find((func) => func.name === functionName && func.type === 'function');
-	const encodedParametersHex = web3.eth.abi.encodeFunctionCall(functionAbi, parameters).slice(2);
-	return Buffer.from(encodedParametersHex, 'hex');
+	const iface = new ethers.Interface(abi);
+	const encoded = iface.encodeFunctionData(functionName, parameters);
+	return Buffer.from(encoded.slice(2), 'hex');
 }
 
 /**

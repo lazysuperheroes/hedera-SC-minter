@@ -1,76 +1,35 @@
 const {
-	Client,
-	AccountId,
-	PrivateKey,
-	ContractId,
 	TokenId,
 	Hbar,
 	HbarUnit,
 } = require('@hashgraph/sdk');
-require('dotenv').config();
-const fs = require('fs');
-const { ethers } = require('ethers');
 const readlineSync = require('readline-sync');
+const { initScript, runScript } = require('../../lib/scriptBase');
+const { readContract } = require('../../lib/contractHelpers');
 const {
 	contractExecuteFunction,
 	readOnlyEVMFromMirrorNode,
 } = require('../../../utils/solidityHelpers');
-const { getSerialsOwned, getNFTApprovedForAllAllowances } = require('../../../utils/hederaMirrorHelpers');
+const { getSerialsOwned, getNFTApprovedForAllAllowances, getTokenDetails } = require('../../../utils/hederaMirrorHelpers');
 const { estimateGas, logTransactionResult } = require('../../../utils/gasHelpers');
 const { setNFTAllowanceAll } = require('../../../utils/hederaHelpers');
 
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractName = 'ForeverMinter';
-const contractId = ContractId.fromString(process.env.FOREVER_MINTER_CONTRACT_ID || '');
-const env = process.env.ENVIRONMENT ?? null;
-let client;
-
-const main = async () => {
-	if (!operatorId || !operatorKey || !contractId || contractId.toString() === '0.0.0') {
-		console.log('❌ Error: Missing configuration in .env file');
-		return;
-	}
+runScript(async () => {
+	const { client, operatorId, operatorKey, contractId, env, iface } = initScript({
+		contractName: 'ForeverMinter',
+		contractEnvVar: 'FOREVER_MINTER_CONTRACT_ID',
+	});
 
 	console.log('\n🔄 ForeverMinter - NFT Refund');
 	console.log('================================\n');
 
-	// Setup client
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-	}
-	else {
-		console.log('❌ Error: Invalid ENVIRONMENT in .env file');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-
-	// Load ABI
-	const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
-	const minterIface = new ethers.Interface(json.abi);
-
 	try {
 		// Get NFT token address
-		const nftTokenCommand = minterIface.encodeFunctionData('NFT_TOKEN');
-		const nftTokenResult = await readOnlyEVMFromMirrorNode(env, contractId, nftTokenCommand, operatorId, false);
-		const nftTokenAddress = minterIface.decodeFunctionResult('NFT_TOKEN', nftTokenResult)[0];
+		const nftTokenAddress = (await readContract(iface, env, contractId, operatorId, 'NFT_TOKEN'))[0];
 		const nftTokenId = TokenId.fromSolidityAddress(nftTokenAddress);
 
 		// Get timing for refund window info
-		const timingCommand = minterIface.encodeFunctionData('getMintTiming');
-		const timingResult = await readOnlyEVMFromMirrorNode(env, contractId, timingCommand, operatorId, false);
-		const timing = minterIface.decodeFunctionResult('getMintTiming', timingResult)[0];
+		const timing = (await readContract(iface, env, contractId, operatorId, 'getMintTiming'))[0];
 
 		console.log('📊 Refund Configuration:');
 		console.log(`   Refund Window: ${Number(timing[3]) / 3600} hours`);
@@ -78,13 +37,10 @@ const main = async () => {
 		console.log('');
 
 		// Get LAZY token details
-		const lazyCommand = minterIface.encodeFunctionData('getLazyDetails');
-		const lazyResult = await readOnlyEVMFromMirrorNode(env, contractId, lazyCommand, operatorId, false);
-		const lazyDetails = minterIface.decodeFunctionResult('getLazyDetails', lazyResult)[0];
+		const lazyDetails = (await readContract(iface, env, contractId, operatorId, 'getLazyDetails'))[0];
 		const lazyTokenId = TokenId.fromSolidityAddress(lazyDetails[0]);
 
 		// Get token details for formatting
-		const { getTokenDetails } = require('../../../utils/hederaMirrorHelpers');
 		const lazyTokenInfo = await getTokenDetails(env, lazyTokenId);
 		if (!lazyTokenInfo) {
 			console.log('❌ Error: Could not fetch LAZY token details');
@@ -106,9 +62,9 @@ const main = async () => {
 		// Check refund eligibility for all owned NFTs
 		console.log('\n⏰ Checking refund eligibility...\n');
 
-		const eligibilityCommand = minterIface.encodeFunctionData('isRefundOwed', [ownedSerials]);
+		const eligibilityCommand = iface.encodeFunctionData('isRefundOwed', [ownedSerials]);
 		const eligibilityResult = await readOnlyEVMFromMirrorNode(env, contractId, eligibilityCommand, operatorId, false);
-		const [isOwed, expiryTimes] = minterIface.decodeFunctionResult('isRefundOwed', eligibilityResult);
+		const [isOwed, expiryTimes] = iface.decodeFunctionResult('isRefundOwed', eligibilityResult);
 
 		const now = Math.floor(Date.now() / 1000);
 		const eligibleNFTs = [];
@@ -125,9 +81,7 @@ const main = async () => {
 				const minutes = Math.floor((timeLeft % 3600) / 60);
 
 				// Get payment info for this serial
-				const paymentCommand = minterIface.encodeFunctionData('getSerialPayment', [serial]);
-				const paymentResult = await readOnlyEVMFromMirrorNode(env, contractId, paymentCommand, operatorId, false);
-				const payment = minterIface.decodeFunctionResult('getSerialPayment', paymentResult)[0];
+				const payment = (await readContract(iface, env, contractId, operatorId, 'getSerialPayment', [serial]))[0];
 
 				const hbarPaid = Number(payment.hbarPaid);
 				const lazyPaid = Number(payment.lazyPaid);
@@ -361,7 +315,7 @@ const main = async () => {
 		const gasInfo = await estimateGas(
 			env,
 			contractId,
-			minterIface,
+			iface,
 			operatorId,
 			'refundNFT',
 			[selectedSerials],
@@ -370,7 +324,7 @@ const main = async () => {
 
 		const result = await contractExecuteFunction(
 			contractId,
-			minterIface,
+			iface,
 			client,
 			gasInfo.gasLimit,
 			'refundNFT',
@@ -401,11 +355,4 @@ const main = async () => {
 	catch (error) {
 		console.log('❌ Error during refund:', error.message);
 	}
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch((error) => {
-		console.log(error);
-		process.exit(1);
-	});
+});

@@ -1,29 +1,18 @@
 const {
-	Client,
-	AccountId,
-	PrivateKey,
-	ContractId,
 	TokenId,
 } = require('@hashgraph/sdk');
-require('dotenv').config();
-const fs = require('fs');
-const { ethers } = require('ethers');
 const readlineSync = require('readline-sync');
+const { initScript, runScript } = require('../../lib/scriptBase');
 const { contractExecuteFunction, readOnlyEVMFromMirrorNode } = require('../../../utils/solidityHelpers');
 const { setNFTAllowanceAll } = require('../../../utils/hederaHelpers');
 const { estimateGas, logTransactionResult } = require('../../../utils/gasHelpers');
 
-// Get operator from .env file
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractName = 'SoulboundBadgeMinter';
+runScript(async () => {
+	const { client, operatorId, contractId, env, iface: minterIface } = initScript({
+		contractName: 'SoulboundBadgeMinter',
+		contractEnvVar: 'CONTRACT_ID',
+	});
 
-const contractId = ContractId.fromString(process.env.CONTRACT_ID);
-
-const env = process.env.ENVIRONMENT ?? null;
-let client;
-
-const main = async () => {
 	// Check for required arguments
 	if (process.argv.length < 3) {
 		console.log('Usage: node burnBadge.js <serial1> [serial2] [serial3] ...');
@@ -34,47 +23,9 @@ const main = async () => {
 		return;
 	}
 
-	if (operatorId === undefined || operatorId == null) {
-		console.log('Environment required, please specify ACCOUNT_ID in the .env file');
-		return;
-	}
-	else if (contractId === undefined || contractId == null) {
-		console.log('Contract ID required, please specify CONTRACT_ID in the .env file');
-		return;
-	}
-
 	console.log('\n-Using ENVIRONMENT:', env);
 	console.log('\n-Using Operator:', operatorId.toString());
 	console.log('\n-Using contract:', contractId.toString());
-	console.log('\n-Using contract name:', contractName);
-
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-		console.log('interacting in *TESTNET*');
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-		console.log('interacting in *MAINNET*');
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-		console.log('interacting in *PREVIEWNET*');
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-		console.log('interacting in *LOCAL*');
-	}
-	else {
-		console.log('ERROR: Must specify either MAIN or TEST or PREVIEW or LOCAL as environment in .env file');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-
-	// import ABI
-	const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
-	const minterIface = new ethers.Interface(json.abi);
 
 	// Parse serial numbers from arguments
 	let serialNumbers = [];
@@ -290,13 +241,4 @@ const main = async () => {
 	catch (error) {
 		console.log('❌ Error during burning:', error.message);
 	}
-};
-
-main()
-	.then(() => {
-		process.exit(0);
-	})
-	.catch((error) => {
-		console.log(error);
-		process.exit(1);
-	});
+});

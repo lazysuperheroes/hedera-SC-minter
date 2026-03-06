@@ -33,10 +33,11 @@ const { checkMirrorBalance, getSerialsOwned, checkMirrorHbarBalance, getTokenDet
 const { fail } = require('assert');
 const { ethers } = require('ethers');
 const { estimateGas } = require('../utils/gasHelpers');
+const { ZERO_ADDRESS, ADDRESS_REGEX } = require('./helpers/constants');
 
 require('dotenv').config();
 
-// ⚠️ IMPORTANT: Create USDC test tokens with 6 decimals to match production behavior
+// IMPORTANT: Create USDC test tokens with 6 decimals to match production behavior
 
 // Get operator from .env file
 let operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
@@ -48,8 +49,6 @@ const env = process.env.ENVIRONMENT ?? null;
 const MINT_PAYMENT = process.env.MINT_PAYMENT || 50;
 const LAZY_DECIMAL = process.env.LAZY_DECIMALS ?? 1;
 const LAZY_MAX_SUPPLY = process.env.LAZY_MAX_SUPPLY ?? 250_000_000;
-
-const addressRegex = /(\d+\.\d+\.[1-9]\d+)/i;
 
 // Test Constants
 const EDITION_MAX_SUPPLY = 10;
@@ -78,8 +77,6 @@ let minterIface, lazyIface;
 const createdAccounts = [];
 const lazyAllowancesSet = [];
 const usdcAllowancesSet = [];
-
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 describe('Deployment & Setup:', function () {
 	it('Should deploy dependencies and setup test conditions', async function () {
@@ -200,8 +197,8 @@ describe('Deployment & Setup:', function () {
 			console.log('LAZY Token created:', lazyTokenId.toString());
 		}
 
-		expect(lazySCT.toString().match(addressRegex).length == 2).to.be.true;
-		expect(lazyTokenId.toString().match(addressRegex).length == 2).to.be.true;
+		expect(lazySCT.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
+		expect(lazyTokenId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 
 		// Create USDC test tokens with 6 decimals
 
@@ -276,7 +273,7 @@ describe('Deployment & Setup:', function () {
 			console.log('PRNG Generator deployed:', prngGenerator.toString());
 		}
 
-		expect(prngGenerator.toString().match(addressRegex).length == 2).to.be.true;
+		expect(prngGenerator.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 
 		// Deploy LazyDelegateRegistry
 		const lazyDelegateRegistryName = 'LazyDelegateRegistry';
@@ -300,11 +297,21 @@ describe('Deployment & Setup:', function () {
 			console.log('Lazy Delegate Registry deployed:', lazyDelegateRegistry.toString());
 		}
 
-		expect(lazyDelegateRegistry.toString().match(addressRegex).length == 2).to.be.true;
+		expect(lazyDelegateRegistry.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 
 		// Ensure operator has tokens
 		const operatorLazyBal = await checkMirrorBalance(env, operatorId, lazyTokenId);
 		if (!operatorLazyBal || operatorLazyBal < 1000) {
+			// need to check if the token is associated!
+			if (operatorLazyBal === null) {
+				const assocResult = await associateTokenToAccount(client, operatorId, operatorKey, lazyTokenId);
+				if (assocResult !== 'SUCCESS') {
+					console.log('LAZY token association failed for operator:', assocResult);
+					fail('LAZY token association failed');
+				}
+				console.log('Associated LAZY token to operator');
+			}
+
 			console.log('\n-Operator needs LAZY, drawing from creator');
 			const drawResult = await contractExecuteFunction(
 				lazySCT,
@@ -391,7 +398,7 @@ describe('Deployment & Setup:', function () {
 
 			wlTokenId = result[1];
 			console.log('\n-WL Token minted:', wlTokenId.toString(), '(10 serials)');
-			expect(wlTokenId.toString().match(addressRegex).length == 2).to.be.true;
+			expect(wlTokenId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 		}
 
 		// Associate WL token to test accounts
@@ -461,7 +468,7 @@ describe('Deployment & Setup:', function () {
 		console.log(`Contract created with ID: ${contractId} / ${contractAddress}`);
 		console.log('\n-Testing:', contractName);
 
-		expect(contractId.toString().match(addressRegex).length == 2).to.be.true;
+		expect(contractId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 	});
 });
 
@@ -592,7 +599,7 @@ describe('Token Initialization:', function () {
 
 		editionTokenId = TokenId.fromSolidityAddress(result[1][0]);
 		console.log('\n-Edition Token Created:', editionTokenId.toString());
-		expect(editionTokenId.toString().match(addressRegex).length == 2).to.be.true;
+		expect(editionTokenId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 
 		// Wait for mirror node
 		await sleep(5000);
@@ -665,7 +672,7 @@ describe('Token Initialization:', function () {
 
 		prizeTokenId = TokenId.fromSolidityAddress(result[1][0]);
 		console.log('\n-Prize Token Created:', prizeTokenId.toString());
-		expect(prizeTokenId.toString().match(addressRegex).length == 2).to.be.true;
+		expect(prizeTokenId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
 
 		// Wait for mirror node
 		await sleep(5000);
@@ -1864,7 +1871,7 @@ describe('Access Control Tests:', function () {
 				[1000, 100, 1000],
 			);
 
-			if (result[0]?.status != 'REVERT: Ownable: caller is not the owner') {
+			if (result[0]?.status?.name != 'NotAdmin') {
 				console.log('Configuration update succeeded unexpectedly:', result);
 				unexpectedErrors++;
 			}

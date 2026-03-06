@@ -1,5 +1,4 @@
 const {
-	Client,
 	AccountId,
 	PrivateKey,
 	ContractId,
@@ -14,8 +13,8 @@ const {
 require('dotenv').config();
 const readlineSync = require('readline-sync');
 const fs = require('fs');
-const Web3 = require('web3');
-const web3 = new Web3();
+const { ethers } = require('ethers');
+const { createClient, runScript } = require('../lib/scriptBase');
 let abi;
 
 // Get operator from .env file
@@ -35,38 +34,22 @@ const env = process.env.ENVIRONMENT ?? null;
 let client, aliceClient, bobClient;
 
 // check-out the deployed script - test read-only method
-const main = async () => {
+runScript(async () => {
 	if (contractName === undefined || contractName == null) {
 		console.log('Environment required, please specify CONTRACT_NAME for ABI in the .env file');
 		return;
 	}
 
 
-	console.log('\n-Using ENIVRONMENT:', env);
+	console.log('\n-Using ENVIRONMENT:', env);
 	console.log('\n-Using Operator:', operatorId.toString());
 	console.log('\n-Using Alice:', aliceId.toString());
 	console.log('\n-Using Bob:', bobId.toString());
 
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-		aliceClient = Client.forTestnet();
-		bobClient = Client.forTestnet();
-		console.log('interacting in *TESTNET*');
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-		aliceClient = Client.forMainnet();
-		bobClient = Client.forMainnet();
-		console.log('interacting in *MAINNET*');
-	}
-	else {
-		console.log('ERROR: Must specify either MAIN or TEST as environment in .env file');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-	aliceClient.setOperator(aliceId, aliceKey);
-	bobClient.setOperator(bobId, bobKey);
+	client = createClient(env, operatorId, operatorKey);
+	aliceClient = createClient(env, aliceId, aliceKey);
+	bobClient = createClient(env, bobId, bobKey);
+	console.log(`interacting in *${env.toUpperCase()}*`);
 
 	let [, nftBal] = await getAccountBalance(operatorId);
 	console.log('Found NFT balance:', nftBal.toString());
@@ -122,7 +105,7 @@ const main = async () => {
 	else {
 		console.log('User aborted.');
 	}
-};
+});
 
 function sleep(ms) {
 	return new Promise(resolve => setTimeout(resolve, ms));
@@ -210,7 +193,6 @@ async function mintNFT(quantity, tinybarPmt, specificClient, user) {
 }
 
 async function contractExecuteWithStructArgs(cId, gasLim, fcnName, params, amountHbar, specificClient) {
-	// use web3.eth.abi to encode the struct for sending.
 	// console.log('pre-encode:', JSON.stringify(params, null, 4));
 	const functionCallAsUint8Array = await encodeFunctionCall(fcnName, params);
 
@@ -234,17 +216,15 @@ async function contractExecuteWithStructArgs(cId, gasLim, fcnName, params, amoun
  * @param resultAsBytes a byte array containing the execution result
  */
 function decodeFunctionResult(functionName, resultAsBytes) {
-	const functionAbi = abi.find(func => func.name === functionName);
-	const functionParameters = functionAbi.outputs;
+	const iface = new ethers.Interface(abi);
 	const resultHex = '0x'.concat(Buffer.from(resultAsBytes).toString('hex'));
-	const result = web3.eth.abi.decodeParameters(functionParameters, resultHex);
-	return result;
+	return iface.decodeFunctionResult(functionName, resultHex);
 }
 
 function encodeFunctionCall(functionName, parameters) {
-	const functionAbi = abi.find((func) => func.name === functionName && func.type === 'function');
-	const encodedParametersHex = web3.eth.abi.encodeFunctionCall(functionAbi, parameters).slice(2);
-	return Buffer.from(encodedParametersHex, 'hex');
+	const iface = new ethers.Interface(abi);
+	const encoded = iface.encodeFunctionData(functionName, parameters);
+	return Buffer.from(encoded.slice(2), 'hex');
 }
 
 async function getAccountBalance(acctId) {
@@ -269,13 +249,3 @@ async function getAccountBalance(acctId) {
 
 	return [info.balance, nftBal];
 }
-
-main()
-	.then(() => {
-		// eslint-disable-next-line no-useless-escape
-		process.exit(0);
-	})
-	.catch(error => {
-		console.error(error);
-		process.exit(1);
-	});

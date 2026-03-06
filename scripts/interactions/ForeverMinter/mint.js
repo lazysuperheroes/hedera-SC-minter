@@ -1,16 +1,12 @@
 const {
-	Client,
-	AccountId,
-	PrivateKey,
-	ContractId,
 	TokenId,
 	HbarUnit,
 	Hbar,
+	ContractId,
 } = require('@hashgraph/sdk');
-require('dotenv').config();
-const fs = require('fs');
-const { ethers } = require('ethers');
 const readlineSync = require('readline-sync');
+const { initScript, runScript } = require('../../lib/scriptBase');
+const { readContract } = require('../../lib/contractHelpers');
 const {
 	contractExecuteFunction,
 	readOnlyEVMFromMirrorNode,
@@ -31,61 +27,19 @@ const {
 } = require('../../../utils/hederaMirrorHelpers');
 const { estimateGas, logTransactionResult } = require('../../../utils/gasHelpers');
 
-// Get operator from .env
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractName = 'ForeverMinter';
-const contractId = ContractId.fromString(process.env.FOREVER_MINTER_CONTRACT_ID || '');
-const env = process.env.ENVIRONMENT ?? null;
-
-let client;
-
-const main = async () => {
-	// Validate environment
-	if (!operatorId || !operatorKey) {
-		console.log('❌ Error: Missing ACCOUNT_ID or PRIVATE_KEY in .env file');
-		return;
-	}
-
-	if (!contractId || contractId.toString() === '0.0.0') {
-		console.log('❌ Error: Missing or invalid FOREVER_MINTER_CONTRACT_ID in .env file');
-		return;
-	}
+runScript(async () => {
+	const { client, operatorId, operatorKey, contractId, env, iface } = initScript({
+		contractName: 'ForeverMinter',
+		contractEnvVar: 'FOREVER_MINTER_CONTRACT_ID',
+	});
 
 	console.log('\n🎯 ForeverMinter - Interactive Minting');
 	console.log('========================================\n');
 
-	// Setup client
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-	}
-	else {
-		console.log('❌ Error: Invalid ENVIRONMENT in .env file (must be TEST, MAIN, PREVIEW, or LOCAL)');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-
-	// Load ABI
-	const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
-	const minterIface = new ethers.Interface(json.abi);
-
 	try {
 		// Step 1: Get NFT token address from contract
 		console.log('📋 Checking token association...');
-		const nftTokenCommand = minterIface.encodeFunctionData('NFT_TOKEN');
-		const nftTokenResult = await readOnlyEVMFromMirrorNode(env, contractId, nftTokenCommand, operatorId, false);
-		const nftTokenAddress = minterIface.decodeFunctionResult('NFT_TOKEN', nftTokenResult)[0];
+		const nftTokenAddress = (await readContract(iface, env, contractId, operatorId, 'NFT_TOKEN'))[0];
 		const nftTokenId = TokenId.fromSolidityAddress(nftTokenAddress);
 
 		// Check association
@@ -110,24 +64,16 @@ const main = async () => {
 		console.log('\n📊 Loading contract configuration...');
 
 		// Get economics
-		const economicsCommand = minterIface.encodeFunctionData('getMintEconomics');
-		const economicsResult = await readOnlyEVMFromMirrorNode(env, contractId, economicsCommand, operatorId, false);
-		const economics = minterIface.decodeFunctionResult('getMintEconomics', economicsResult)[0];
+		const economics = (await readContract(iface, env, contractId, operatorId, 'getMintEconomics'))[0];
 
 		// Get timing
-		const timingCommand = minterIface.encodeFunctionData('getMintTiming');
-		const timingResult = await readOnlyEVMFromMirrorNode(env, contractId, timingCommand, operatorId, false);
-		const timing = minterIface.decodeFunctionResult('getMintTiming', timingResult)[0];
+		const timing = (await readContract(iface, env, contractId, operatorId, 'getMintTiming'))[0];
 
 		// Get remaining supply
-		const supplyCommand = minterIface.encodeFunctionData('getRemainingSupply');
-		const supplyResult = await readOnlyEVMFromMirrorNode(env, contractId, supplyCommand, operatorId, false);
-		const remainingSupply = minterIface.decodeFunctionResult('getRemainingSupply', supplyResult)[0];
+		const remainingSupply = (await readContract(iface, env, contractId, operatorId, 'getRemainingSupply'))[0];
 
 		// Get LAZY details
-		const lazyCommand = minterIface.encodeFunctionData('getLazyDetails');
-		const lazyResult = await readOnlyEVMFromMirrorNode(env, contractId, lazyCommand, operatorId, false);
-		const lazyDetails = minterIface.decodeFunctionResult('getLazyDetails', lazyResult)[0];
+		const lazyDetails = (await readContract(iface, env, contractId, operatorId, 'getLazyDetails'))[0];
 		const lazyTokenId = TokenId.fromSolidityAddress(lazyDetails[0]);
 
 		// Get LAZY token details for decimal precision
@@ -139,9 +85,7 @@ const main = async () => {
 		const lazyDecimals = parseInt(lazyTokenInfo.decimals);
 
 		// Get LazyGasStation address
-		const lgsCommand = minterIface.encodeFunctionData('lazyGasStation');
-		const lgsResult = await readOnlyEVMFromMirrorNode(env, contractId, lgsCommand, operatorId, false);
-		const lazyGasStationAddress = minterIface.decodeFunctionResult('lazyGasStation', lgsResult)[0];
+		const lazyGasStationAddress = (await readContract(iface, env, contractId, operatorId, 'lazyGasStation'))[0];
 		const lazyGasStationId = ContractId.fromSolidityAddress(lazyGasStationAddress);
 
 		// Format prices for display
@@ -180,16 +124,14 @@ const main = async () => {
 		// Step 3: Check discount eligibility
 		console.log('\n🔍 Checking available discounts...');
 
-		const tierCountCommand = minterIface.encodeFunctionData('getDiscountTierCount');
-		const tierCountResult = await readOnlyEVMFromMirrorNode(env, contractId, tierCountCommand, operatorId, false);
-		const tierCount = minterIface.decodeFunctionResult('getDiscountTierCount', tierCountResult)[0];
+		const tierCount = (await readContract(iface, env, contractId, operatorId, 'getDiscountTierCount'))[0];
 
 		// Build a map of discount tokens by scanning contract events
 		const discountTokenMap = new Map();
 
 		console.log('   Scanning contract history for discount tokens...');
 		// Fetch all events to find DiscountTierUpdated
-		const allEvents = await parseContractEvents(env, contractId, minterIface, 100, true, 'desc');
+		const allEvents = await parseContractEvents(env, contractId, iface, 100, true, 'desc');
 		const discountEvents = allEvents.filter(e => e.name === 'DiscountTierUpdated');
 
 		const processedTokens = new Set();
@@ -239,13 +181,13 @@ const main = async () => {
 
 					// Batch check serial discount info
 					const tokenAddresses = ownedSerials.map(() => info.tokenAddress);
-					const batchCommand = minterIface.encodeFunctionData('getBatchSerialDiscountInfo', [
+					const batchCommand = iface.encodeFunctionData('getBatchSerialDiscountInfo', [
 						tokenAddresses,
 						ownedSerials,
 					]);
 					const batchResult = await readOnlyEVMFromMirrorNode(env, contractId, batchCommand, operatorId, false);
 					const [, usesRemaining, isEligible] =
-						minterIface.decodeFunctionResult('getBatchSerialDiscountInfo', batchResult);
+						iface.decodeFunctionResult('getBatchSerialDiscountInfo', batchResult);
 
 					for (let i = 0; i < ownedSerials.length; i++) {
 						if (isEligible[i] && Number(usesRemaining[i]) > 0) {
@@ -293,9 +235,7 @@ const main = async () => {
 			if (Number(tierCount) > 0) {
 				console.log('\n📋 Available Discount Tiers (Generic):');
 				for (let i = 0; i < Number(tierCount); i++) {
-					const tierCommand = minterIface.encodeFunctionData('getDiscountTier', [i]);
-					const tierResult = await readOnlyEVMFromMirrorNode(env, contractId, tierCommand, operatorId, false);
-					const tier = minterIface.decodeFunctionResult('getDiscountTier', tierResult)[0];
+					const tier = (await readContract(iface, env, contractId, operatorId, 'getDiscountTier', [i]))[0];
 
 					if (Number(tier.discountPercentage) === 0) continue;
 
@@ -306,9 +246,7 @@ const main = async () => {
 
 		// Check WL slots
 		const userAddress = await homebrewPopulateAccountEvmAddress(env, operatorId);
-		const wlSlotsCommand = minterIface.encodeFunctionData('getBatchWhitelistSlots', [[userAddress]]);
-		const wlSlotsResult = await readOnlyEVMFromMirrorNode(env, contractId, wlSlotsCommand, operatorId, false);
-		const wlSlotsArray = minterIface.decodeFunctionResult('getBatchWhitelistSlots', wlSlotsResult)[0];
+		const wlSlotsArray = (await readContract(iface, env, contractId, operatorId, 'getBatchWhitelistSlots', [[userAddress]]))[0];
 		const wlSlots = wlSlotsArray[0];
 
 		if (Number(wlSlots) > 0) {
@@ -316,13 +254,13 @@ const main = async () => {
 		}
 
 		// Check user's mint count
-		const mintCountCommand = minterIface.encodeFunctionData('getWalletMintCount', [
+		const mintCountCommand = iface.encodeFunctionData('getWalletMintCount', [
 			(await homebrewPopulateAccountEvmAddress(env, operatorId)).startsWith('0x')
 				? await homebrewPopulateAccountEvmAddress(env, operatorId)
 				: operatorId.toSolidityAddress(),
 		]);
 		const mintCountResult = await readOnlyEVMFromMirrorNode(env, contractId, mintCountCommand, operatorId, false);
-		const currentMintCount = minterIface.decodeFunctionResult('getWalletMintCount', mintCountResult)[0];
+		const currentMintCount = iface.decodeFunctionResult('getWalletMintCount', mintCountResult)[0];
 
 		// Check user's NFTs for potential sacrifice
 		console.log('\n📦 Checking NFTs you own for sacrifice option...');
@@ -549,7 +487,7 @@ const main = async () => {
 
 		console.log('Calculating final cost...\n');
 
-		const costCommand = minterIface.encodeFunctionData('calculateMintCost', [
+		const costCommand = iface.encodeFunctionData('calculateMintCost', [
 			quantity,
 			discountTokens,
 			serialsByToken,
@@ -558,7 +496,7 @@ const main = async () => {
 
 		const costResult = await readOnlyEVMFromMirrorNode(env, contractId, costCommand, operatorId, false);
 		const [totalHbarCost, totalLazyCost, totalDiscount, holderSlotsUsed, wlSlotsUsed] =
-			minterIface.decodeFunctionResult('calculateMintCost', costResult);
+			iface.decodeFunctionResult('calculateMintCost', costResult);
 
 		// Format costs for display
 		const formattedHbarCost = Hbar.fromTinybars(Number(totalHbarCost));
@@ -641,7 +579,7 @@ const main = async () => {
 		const gasInfo = await estimateGas(
 			env,
 			contractId,
-			minterIface,
+			iface,
 			operatorId,
 			'mintNFT',
 			[quantity, discountTokens, serialsByToken, sacrificeSerials],
@@ -651,7 +589,7 @@ const main = async () => {
 
 		const result = await contractExecuteFunction(
 			contractId,
-			minterIface,
+			iface,
 			client,
 			gasInfo.gasLimit,
 			'mintNFT',
@@ -691,11 +629,4 @@ const main = async () => {
 			console.log('💡 Tip: Contract reverted. Check requirements (paused, supply, limits, etc.)');
 		}
 	}
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch((error) => {
-		console.log(error);
-		process.exit(1);
-	});
+});

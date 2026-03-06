@@ -274,7 +274,7 @@ contract FungibleTokenCreator is ExpiryHelper, Ownable {
         token.treasury = address(this);
 
         if (maxSupply > 0) {
-            token.tokenSupplyType = false;
+            token.tokenSupplyType = true;
             token.maxSupply = maxSupply;
         }
 
@@ -333,7 +333,7 @@ contract FungibleTokenCreator is ExpiryHelper, Ownable {
         token.treasury = address(this);
 
         if (maxSupply > 0) {
-            token.tokenSupplyType = false;
+            token.tokenSupplyType = true;
             token.maxSupply = maxSupply;
         }
 
@@ -583,30 +583,7 @@ contract FungibleTokenCreator is ExpiryHelper, Ownable {
         emit TokenControllerMessage("Transfer", recipient, amount, "complete");
     }
 
-    // Left in for example purposes - will remove for production
-    // Low level call to call hbar from the contract to avoid it getting trapped
-    /// @param receiverAddress address in EVM fomat of the reciever of the token
-    /// @param amount number of tokens to send (in long form adjusted for decimal)
-    /// @return sent a boolean signalling success
-    function callHbar(
-        address payable receiverAddress,
-        uint256 amount
-    ) external onlyOwner returns (bool sent) {
-        (sent, ) = receiverAddress.call{value: amount}("");
-        if (!sent) {
-            revert SendHbarFailed();
-        }
-        receiverAddress.transfer(amount);
-
-        emit TokenControllerMessage(
-            "Hbar Call",
-            receiverAddress,
-            amount,
-            "complete"
-        );
-    }
-
-    // Transfer hbar oput of the contract - using secure ether transfer pattern
+    // Transfer hbar out of the contract - using secure ether transfer pattern
     // on top of onlyOwner as max gas of 2300 (not adjustable) will limit re-entrrant attacks
     // also throws error on failure causing contract to auutomatically revert
     /// @param receiverAddress address in EVM fomat of the reciever of the token

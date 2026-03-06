@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity >=0.8.12 <0.9.0;
-pragma experimental ABIEncoderV2;
 
 import {HederaTokenServiceStakerLite} from "./HederaTokenServiceStakerLite.sol";
 import {IHederaTokenService} from "./interfaces/IHederaTokenService.sol";
+import {Bits} from "./libraries/Bits.sol";
 
 abstract contract KeyHelper is HederaTokenServiceStakerLite {
     using Bits for uint256;
@@ -25,7 +25,7 @@ abstract contract KeyHelper is HederaTokenServiceStakerLite {
         CONTRACT_ID,
         ED25519,
         SECP256K1,
-        DELEGETABLE_CONTRACT_ID
+        DELEGATABLE_CONTRACT_ID
     }
 
     constructor() {
@@ -167,7 +167,7 @@ abstract contract KeyHelper is HederaTokenServiceStakerLite {
             keyValue.ed25519 = key;
         } else if (keyValueType == KeyValueType.SECP256K1) {
             keyValue.ECDSA_secp256k1 = key;
-        } else if (keyValueType == KeyValueType.DELEGETABLE_CONTRACT_ID) {
+        } else if (keyValueType == KeyValueType.DELEGATABLE_CONTRACT_ID) {
             keyValue.delegatableContractId = supplyContract;
         }
     }
@@ -178,18 +178,9 @@ abstract contract KeyHelper is HederaTokenServiceStakerLite {
     ) internal pure returns (IHederaTokenService.KeyValue memory keyValue) {
         if (keyValueType == KeyValueType.CONTRACT_ID) {
             keyValue.contractId = keyAddress;
-        } else if (keyValueType == KeyValueType.DELEGETABLE_CONTRACT_ID) {
+        } else if (keyValueType == KeyValueType.DELEGATABLE_CONTRACT_ID) {
             keyValue.delegatableContractId = keyAddress;
         }
     }
 }
 
-library Bits {
-    uint256 internal constant ONE = uint256(1);
-
-    // Sets the bit at the given 'index' in 'self' to '1'.
-    // Returns the modified value.
-    function setBit(uint256 self, uint8 index) internal pure returns (uint256) {
-        return self | (ONE << index);
-    }
-}

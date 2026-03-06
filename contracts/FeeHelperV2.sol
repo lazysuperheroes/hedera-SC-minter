@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity >=0.8.12 <0.9.0;
-pragma experimental ABIEncoderV2;
+
+/// @notice DEPRECATED: V2 helpers for future use with HTS precompile 0x16c. No current contract uses this chain.
 
 import {KeyHelperV2} from "./KeyHelperV2.sol";
 import {IHederaTokenServiceV2} from "./interfaces/IHederaTokenServiceV2.sol";
@@ -185,7 +186,7 @@ abstract contract FeeHelperV2 is KeyHelperV2 {
         pure
         returns (IHederaTokenServiceV2.FixedFee[] memory fixedFees)
     {
-        fixedFees = new IHederaTokenServiceV2.FixedFee[](1);
+        fixedFees = new IHederaTokenServiceV2.FixedFee[](2);
         IHederaTokenServiceV2.FixedFee
             memory fixedFee1 = createFixedFeeForToken(
                 amount,
@@ -199,7 +200,7 @@ abstract contract FeeHelperV2 is KeyHelperV2 {
                 secondFeeCollector
             );
         fixedFees[0] = fixedFee1;
-        fixedFees[0] = fixedFee2;
+        fixedFees[1] = fixedFee2;
     }
 
     function createSingleFixedFeeForHbars(

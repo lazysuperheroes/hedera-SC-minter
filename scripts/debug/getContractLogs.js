@@ -23,7 +23,7 @@ async function main() {
 		return;
 	}
 
-	console.log('Using ENIVRONMENT:', env);
+	console.log('Using ENVIRONMENT:', env);
 
 	const args = process.argv.slice(2);
 	if (args.length != 2 || getArgFlag('h')) {

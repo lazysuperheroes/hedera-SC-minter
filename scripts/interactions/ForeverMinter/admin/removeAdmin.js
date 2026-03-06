@@ -1,28 +1,14 @@
-const {
-	Client,
-	AccountId,
-	PrivateKey,
-	ContractId,
-} = require('@hashgraph/sdk');
-require('dotenv').config();
-const fs = require('fs');
-const { ethers } = require('ethers');
+const { AccountId } = require('@hashgraph/sdk');
 const readlineSync = require('readline-sync');
+const { initScript, runScript } = require('../../../lib/scriptBase');
 const { contractExecuteFunction } = require('../../../../utils/solidityHelpers');
 const { estimateGas, logTransactionResult } = require('../../../../utils/gasHelpers');
 
-const operatorKey = PrivateKey.fromStringED25519(process.env.PRIVATE_KEY);
-const operatorId = AccountId.fromString(process.env.ACCOUNT_ID);
-const contractName = 'ForeverMinter';
-const contractId = ContractId.fromString(process.env.FOREVER_MINTER_CONTRACT_ID || '');
-const env = process.env.ENVIRONMENT ?? null;
-let client;
-
-const main = async () => {
-	if (!operatorId || !operatorKey || !contractId || contractId.toString() === '0.0.0') {
-		console.log('❌ Error: Missing configuration in .env file');
-		return;
-	}
+runScript(async () => {
+	const { client, operatorId, operatorKey, contractId, env, iface } = initScript({
+		contractName: 'ForeverMinter',
+		contractEnvVar: 'FOREVER_MINTER_CONTRACT_ID',
+	});
 
 	if (process.argv.length < 3) {
 		console.log('Usage: node removeAdmin.js <accountId>');
@@ -43,31 +29,6 @@ const main = async () => {
 
 	console.log('\n👥 ForeverMinter - Remove Admin');
 	console.log('==================================\n');
-
-	// Setup client
-	if (env.toUpperCase() == 'TEST') {
-		client = Client.forTestnet();
-	}
-	else if (env.toUpperCase() == 'MAIN') {
-		client = Client.forMainnet();
-	}
-	else if (env.toUpperCase() == 'PREVIEW') {
-		client = Client.forPreviewnet();
-	}
-	else if (env.toUpperCase() == 'LOCAL') {
-		const node = { '127.0.0.1:50211': new AccountId(3) };
-		client = Client.forNetwork(node).setMirrorNetwork('127.0.0.1:5600');
-	}
-	else {
-		console.log('❌ Error: Invalid ENVIRONMENT in .env file');
-		return;
-	}
-
-	client.setOperator(operatorId, operatorKey);
-
-	// Load ABI
-	const json = JSON.parse(fs.readFileSync(`./artifacts/contracts/${contractName}.sol/${contractName}.json`));
-	const minterIface = new ethers.Interface(json.abi);
 
 	try {
 		console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -90,7 +51,7 @@ const main = async () => {
 		const gasInfo = await estimateGas(
 			env,
 			contractId,
-			minterIface,
+			iface,
 			operatorId,
 			'removeAdmin',
 			[targetId.toSolidityAddress()],
@@ -99,7 +60,7 @@ const main = async () => {
 
 		const result = await contractExecuteFunction(
 			contractId,
-			minterIface,
+			iface,
 			client,
 			gasInfo.gasLimit,
 			'removeAdmin',
@@ -126,11 +87,4 @@ const main = async () => {
 	catch (error) {
 		console.log('❌ Error removing admin:', error.message);
 	}
-};
-
-main()
-	.then(() => process.exit(0))
-	.catch((error) => {
-		console.log(error);
-		process.exit(1);
-	});
+});
