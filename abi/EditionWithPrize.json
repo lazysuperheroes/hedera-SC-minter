@@ -115,6 +115,11 @@
         },
         {
             "inputs": [],
+            "name": "NotAdmin",
+            "type": "error"
+        },
+        {
+            "inputs": [],
             "name": "NotEnoughHbar",
             "type": "error"
         },
@@ -413,6 +418,19 @@
         {
             "inputs": [
                 {
+                    "internalType": "address",
+                    "name": "_admin",
+                    "type": "address"
+                }
+            ],
+            "name": "addAdmin",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+        },
+        {
+            "inputs": [
+                {
                     "internalType": "address[]",
                     "name": "_addresses",
                     "type": "address[]"
@@ -557,6 +575,19 @@
                     "internalType": "address",
                     "name": "",
                     "type": "address"
+                }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+        },
+        {
+            "inputs": [],
+            "name": "getAdmins",
+            "outputs": [
+                {
+                    "internalType": "address[]",
+                    "name": "",
+                    "type": "address[]"
                 }
             ],
             "stateMutability": "view",
@@ -1125,6 +1156,19 @@
                 }
             ],
             "name": "purchaseWhitelistWithToken",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+        },
+        {
+            "inputs": [
+                {
+                    "internalType": "address",
+                    "name": "_admin",
+                    "type": "address"
+                }
+            ],
+            "name": "removeAdmin",
             "outputs": [],
             "stateMutability": "nonpayable",
             "type": "function"

@@ -262,7 +262,7 @@
                     "type": "address"
                 },
                 {
-                    "indexed": false,
+                    "indexed": true,
                     "internalType": "bool",
                     "name": "added",
                     "type": "bool"
@@ -281,13 +281,13 @@
                     "type": "address"
                 },
                 {
-                    "indexed": false,
+                    "indexed": true,
                     "internalType": "uint256",
                     "name": "tierIndex",
                     "type": "uint256"
                 },
                 {
-                    "indexed": false,
+                    "indexed": true,
                     "internalType": "uint256",
                     "name": "discountPercentage",
                     "type": "uint256"
@@ -306,19 +306,19 @@
             "anonymous": false,
             "inputs": [
                 {
-                    "indexed": false,
+                    "indexed": true,
                     "internalType": "uint256",
                     "name": "mintPriceHbar",
                     "type": "uint256"
                 },
                 {
-                    "indexed": false,
+                    "indexed": true,
                     "internalType": "uint256",
                     "name": "mintPriceLazy",
                     "type": "uint256"
                 },
                 {
-                    "indexed": false,
+                    "indexed": true,
                     "internalType": "uint256",
                     "name": "wlDiscount",
                     "type": "uint256"
@@ -343,13 +343,13 @@
                     "type": "address"
                 },
                 {
-                    "indexed": false,
+                    "indexed": true,
                     "internalType": "uint256",
                     "name": "hbarAmount",
                     "type": "uint256"
                 },
                 {
-                    "indexed": false,
+                    "indexed": true,
                     "internalType": "uint256",
                     "name": "lazyAmount",
                     "type": "uint256"
@@ -368,13 +368,13 @@
                     "type": "address"
                 },
                 {
-                    "indexed": false,
+                    "indexed": true,
                     "internalType": "uint256",
                     "name": "amount",
                     "type": "uint256"
                 },
                 {
-                    "indexed": false,
+                    "indexed": true,
                     "internalType": "uint256",
                     "name": "burnAmount",
                     "type": "uint256"
@@ -405,7 +405,7 @@
                     "type": "uint256[]"
                 },
                 {
-                    "indexed": false,
+                    "indexed": true,
                     "internalType": "uint256",
                     "name": "hbarPaid",
                     "type": "uint256"
@@ -442,13 +442,13 @@
                     "type": "uint256[]"
                 },
                 {
-                    "indexed": false,
+                    "indexed": true,
                     "internalType": "uint256",
                     "name": "hbarRefunded",
                     "type": "uint256"
                 },
                 {
-                    "indexed": false,
+                    "indexed": true,
                     "internalType": "uint256",
                     "name": "lazyRefunded",
                     "type": "uint256"
@@ -473,7 +473,7 @@
                     "type": "uint256[]"
                 },
                 {
-                    "indexed": false,
+                    "indexed": true,
                     "internalType": "uint256",
                     "name": "newPoolSize",
                     "type": "uint256"
@@ -492,7 +492,7 @@
                     "type": "uint256[]"
                 },
                 {
-                    "indexed": false,
+                    "indexed": true,
                     "internalType": "uint256",
                     "name": "newPoolSize",
                     "type": "uint256"
@@ -524,19 +524,38 @@
             "anonymous": false,
             "inputs": [
                 {
+                    "indexed": true,
+                    "internalType": "address",
+                    "name": "token",
+                    "type": "address"
+                },
+                {
                     "indexed": false,
+                    "internalType": "uint256[]",
+                    "name": "serials",
+                    "type": "uint256[]"
+                }
+            ],
+            "name": "SerialDiscountUsageReset",
+            "type": "event"
+        },
+        {
+            "anonymous": false,
+            "inputs": [
+                {
+                    "indexed": true,
                     "internalType": "uint256",
                     "name": "mintStartTime",
                     "type": "uint256"
                 },
                 {
-                    "indexed": false,
+                    "indexed": true,
                     "internalType": "bool",
                     "name": "mintPaused",
                     "type": "bool"
                 },
                 {
-                    "indexed": false,
+                    "indexed": true,
                     "internalType": "uint256",
                     "name": "refundWindow",
                     "type": "uint256"
@@ -567,7 +586,7 @@
                     "type": "address"
                 },
                 {
-                    "indexed": false,
+                    "indexed": true,
                     "internalType": "bool",
                     "name": "added",
                     "type": "bool"
@@ -864,6 +883,30 @@
                     "internalType": "bool[]",
                     "name": "isEligible",
                     "type": "bool[]"
+                }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+        },
+        {
+            "inputs": [
+                {
+                    "internalType": "address",
+                    "name": "_token",
+                    "type": "address"
+                },
+                {
+                    "internalType": "uint256[]",
+                    "name": "_serials",
+                    "type": "uint256[]"
+                }
+            ],
+            "name": "getBatchSerialDiscountUsage",
+            "outputs": [
+                {
+                    "internalType": "uint256[]",
+                    "name": "usageCounts",
+                    "type": "uint256[]"
                 }
             ],
             "stateMutability": "view",
@@ -1196,6 +1239,30 @@
                     "type": "address"
                 }
             ],
+            "name": "getWalletAveragePayment",
+            "outputs": [
+                {
+                    "internalType": "uint256",
+                    "name": "avgHbar",
+                    "type": "uint256"
+                },
+                {
+                    "internalType": "uint256",
+                    "name": "avgLazy",
+                    "type": "uint256"
+                }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+        },
+        {
+            "inputs": [
+                {
+                    "internalType": "address",
+                    "name": "_wallet",
+                    "type": "address"
+                }
+            ],
             "name": "getWalletMintCount",
             "outputs": [
                 {
@@ -1436,6 +1503,24 @@
         {
             "inputs": [],
             "name": "renounceOwnership",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+        },
+        {
+            "inputs": [
+                {
+                    "internalType": "address",
+                    "name": "_token",
+                    "type": "address"
+                },
+                {
+                    "internalType": "uint256[]",
+                    "name": "_serials",
+                    "type": "uint256[]"
+                }
+            ],
+            "name": "resetSerialDiscountUsage",
             "outputs": [],
             "stateMutability": "nonpayable",
             "type": "function"
