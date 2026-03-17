@@ -4,7 +4,7 @@
   "description": "CLI for deploying and managing Hedera NFT minting contracts",
   "main": "index.js",
   "bin": {
-    "hedera-mint": "./bin/hedera-mint.js"
+    "hedera-mint": "bin/hedera-mint.js"
   },
   "files": [
     "bin/",
@@ -21,7 +21,7 @@
   "license": "ISC",
   "repository": {
     "type": "git",
-    "url": "https://github.com/lazysuperheroes/hedera-SC-minter"
+    "url": "git+https://github.com/lazysuperheroes/hedera-SC-minter.git"
   },
   "dependencies": {
     "@lazysuperheroes/hedera-minter-sdk": "^1.0.1",

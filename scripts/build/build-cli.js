@@ -336,7 +336,16 @@ function build() {
 
 	// Clean and create dist
 	if (fs.existsSync(DIST)) {
-		fs.rmSync(DIST, { recursive: true });
+		try {
+			fs.rmSync(DIST, { recursive: true });
+		}
+		catch (e) {
+			// On Windows, directory may be locked — clear contents instead
+			for (const entry of fs.readdirSync(DIST)) {
+				const p = path.join(DIST, entry);
+				fs.rmSync(p, { recursive: true, force: true });
+			}
+		}
 	}
 	fs.mkdirSync(path.join(DIST, 'bin'), { recursive: true });
 	fs.mkdirSync(path.join(DIST, 'commands'), { recursive: true });
