@@ -1,5 +1,6 @@
 const { initScript, runScript } = require('../../lib/scriptBase');
 const { readOnlyEVMFromMirrorNode } = require('../../../utils/solidityHelpers');
+const { TokenId } = require('@hashgraph/sdk');
 
 const jsonMode = process.env.HEDERA_MINT_JSON === '1';
 
@@ -28,6 +29,16 @@ runScript(async () => {
 		const tokenAddress = minterIface.decodeFunctionResult('getToken', tokenResult);
 
 		const tokenInitialized = tokenAddress[0] !== '0x0000000000000000000000000000000000000000';
+		let tokenHederaId = null;
+		if (tokenInitialized) {
+			try {
+				tokenHederaId = TokenId.fromSolidityAddress(tokenAddress[0]).toString();
+			}
+			catch (error) {
+				tokenHederaId = null;
+			}
+		}
+
 		let maxSupplyVal = null;
 		let totalMintedVal = null;
 		let remainingVal = null;
@@ -171,6 +182,25 @@ runScript(async () => {
 			revocableVal = null;
 		}
 
+		// Get paused status from contract (if available)
+		let pausedVal = null;
+		try {
+			const pausedCommand = minterIface.encodeFunctionData('paused');
+			const pausedResult = await readOnlyEVMFromMirrorNode(
+				env,
+				contractId,
+				pausedCommand,
+				operatorId,
+				false,
+			);
+			const paused = minterIface.decodeFunctionResult('paused', pausedResult);
+			pausedVal = paused[0];
+		}
+		catch (error) {
+			// Pause functionality not available on this contract
+			pausedVal = null;
+		}
+
 		// JSON output
 		if (jsonMode) {
 			console.log(JSON.stringify({
@@ -179,6 +209,7 @@ runScript(async () => {
 				token: {
 					initialized: tokenInitialized,
 					address: tokenAddress[0],
+					hederaId: tokenHederaId,
 					maxSupply: maxSupplyVal,
 					totalMinted: totalMintedVal,
 					remaining: remainingVal,
@@ -195,6 +226,7 @@ runScript(async () => {
 				},
 				capacity: capacityData,
 				revocable: revocableVal,
+				paused: pausedVal,
 			}, null, 2));
 			return;
 		}
@@ -209,7 +241,10 @@ runScript(async () => {
 			console.log('Token: ❌ Not initialized');
 		}
 		else {
-			console.log('Token Address:', tokenAddress[0]);
+			console.log('Token Address (EVM):', tokenAddress[0]);
+			if (tokenHederaId) {
+				console.log('Token ID (Hedera):', tokenHederaId);
+			}
 			console.log('Max Supply:', maxSupplyVal > 1000000000 ? 'Unlimited' : maxSupplyVal);
 			console.log('Total Minted:', totalMintedVal);
 			console.log('Remaining Supply:', remainingVal > 1000000000 ? 'Unlimited' : remainingVal);
@@ -267,6 +302,13 @@ runScript(async () => {
 		}
 		else {
 			console.log('Revocable SBTs: ❓ Could not determine');
+		}
+
+		if (pausedVal !== null) {
+			console.log('Paused:', pausedVal ? '🔴 Yes' : '🟢 No');
+		}
+		else {
+			console.log('Paused: ❓ Not supported by this contract');
 		}
 
 	}

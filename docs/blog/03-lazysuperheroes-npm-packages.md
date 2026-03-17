@@ -41,7 +41,7 @@ npm install @lazysuperheroes/hedera-minter-sdk @lazysuperheroes/hedera-minter-co
 
 | Package | Version | Description |
 |---------|---------|-------------|
-| [`@lazysuperheroes/farming-sdk`](https://www.npmjs.com/package/@lazysuperheroes/farming-sdk) | 1.0.0 | TypeScript SDK for NFT farming and staking on Hedera. Query staking state, calculate rewards, and interact with farming contracts programmatically. |
+| [`@lazysuperheroes/farming-sdk`](https://www.npmjs.com/package/@lazysuperheroes/farming-sdk) | 1.0.1 | TypeScript SDK for NFT farming and staking on Hedera. Query staking state, calculate rewards, and interact with farming contracts programmatically. |
 | [`@lazysuperheroes/farming-cli`](https://www.npmjs.com/package/@lazysuperheroes/farming-cli) | 1.0.0 | Read-only CLI for querying farming and staking contracts. Check staked NFTs, pending rewards, and farm configuration. |
 
 **Repository:** [github.com/lazysuperheroes/hedera-SC-LAZY-Farms](https://github.com/lazysuperheroes/hedera-SC-LAZY-Farms)
@@ -52,7 +52,7 @@ npm install @lazysuperheroes/hedera-minter-sdk @lazysuperheroes/hedera-minter-co
 
 | Package | Version | Description |
 |---------|---------|-------------|
-| [`@lazysuperheroes/lazy-tokenswap-contracts`](https://www.npmjs.com/package/@lazysuperheroes/lazy-tokenswap-contracts) | 2.0.0 | ABIs and TypeScript types for Lazy Token Swap smart contracts. Enables peer-to-peer NFT and token swaps on Hedera with on-chain escrow. |
+| [`@lazysuperheroes/lazy-tokenswap-contracts`](https://www.npmjs.com/package/@lazysuperheroes/lazy-tokenswap-contracts) | 2.1.0 | ABIs and TypeScript types for Lazy Token Swap smart contracts. Enables peer-to-peer NFT and token swaps on Hedera with on-chain escrow. |
 
 **Repository:** [github.com/lazysuperheroes/hedera-SC-LAZY-tokenswap](https://github.com/lazysuperheroes/hedera-SC-LAZY-tokenswap)
 
@@ -65,6 +65,16 @@ npm install @lazysuperheroes/hedera-minter-sdk @lazysuperheroes/hedera-minter-co
 | [`@lazysuperheroes/lazy-lotto`](https://www.npmjs.com/package/@lazysuperheroes/lazy-lotto) | 1.0.0 | LazyLotto and LazyTradeLotto lottery systems on Hedera. ABIs and CLI tools for on-chain lottery management with verifiable random winner selection. |
 
 **Repository:** [github.com/lazysuperheroes/hedera-SC-lazy-lotto](https://github.com/lazysuperheroes/hedera-SC-lazy-lotto)
+
+---
+
+## Voting
+
+| Package | Version | Description |
+|---------|---------|-------------|
+| [`@lazysuperheroes/lazy-voter`](https://www.npmjs.com/package/@lazysuperheroes/lazy-voter) | 1.0.0 | NFT-based on-chain voting for Hedera with delegation support. Snapshot-based eligibility, configurable quorum and voting windows, yes/no/abstain votes, paginated analytics, and owner controls (pause, serial management, HBAR withdrawal). |
+
+**Repository:** [github.com/lazysuperheroes/hedera-SC-lazy-voter](https://github.com/lazysuperheroes/hedera-SC-lazy-voter)
 
 ---
 
