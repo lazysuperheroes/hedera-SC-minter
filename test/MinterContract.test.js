@@ -104,6 +104,12 @@ describe('Deployment: ', function () {
 		}
 
 		client.setOperator(operatorId, operatorKey);
+		// The SDK default max tx fee (~2 ℏ) is below current testnet cost for large
+		// contract-create txs (INSUFFICIENT_TX_FEE). Raise the cap (bounds fee only).
+		client.setDefaultMaxTransactionFee(new Hbar(50));
+		client.setDefaultMaxQueryPayment(new Hbar(5));
+		clientAlice.setDefaultMaxTransactionFee(new Hbar(50));
+		clientAlice.setDefaultMaxQueryPayment(new Hbar(5));
 		// deploy the contract
 		console.log('\n-Using Operator:', operatorId.toString());
 
@@ -1578,7 +1584,7 @@ describe('Basic interaction with the Minter...', function () {
 			contractId,
 			minterIface,
 			client,
-			700_000,
+			900_000,
 			'mintNFT',
 			[1],
 			mintCostInHbar,
@@ -3285,6 +3291,183 @@ describe('Test out random selection...', function () {
 			}
 		}
 		expect(sequential).to.be.false;
+	});
+});
+
+describe('Security Regression (audit remediation):', function () {
+	let probeId, probeIface, savedEconomics, savedTiming;
+
+	// small helper for owner setter calls that must succeed
+	async function execOK(fn, params, gas = 400_000) {
+		const r = await contractExecuteFunction(contractId, minterIface, client, gas, fn, params);
+		if (r[0]?.status?.toString() != 'SUCCESS') {
+			console.log(`${fn} FAILED:`, r);
+			fail();
+		}
+		return r;
+	}
+
+	it('setup: fresh token with supply for the mint-based checks', async function () {
+		client.setOperator(operatorId, operatorKey);
+		// The extended-testing token is minted out by this point in the suite, so establish
+		// a fresh no-royalty token with supply for the maxMint (E-1) and cooldown (L-2) mints.
+		await execOK('resetContract', [true, 10], 900_000);
+
+		const metadataList = [];
+		for (let m = 1; m <= 30; m++) {
+			metadataList.push(('' + m).padStart(3, '0') + '_sec.json');
+		}
+		const [success] = await uploadMetadata(metadataList);
+		expect(success).to.be.equal('SUCCESS');
+
+		const newMint = await contractExecuteFunction(
+			contractId,
+			minterIface,
+			client,
+			1_600_000,
+			'initialiseNFTMint',
+			['SecReg', 'SEC', 'sec regression token', 'ipfs://sec/', [], 0],
+			MINT_PAYMENT,
+		);
+		if (newMint[0]?.status?.toString() != 'SUCCESS') {
+			console.log('reinit FAILED:', newMint);
+			fail();
+		}
+		extendedTestingTokenId = TokenId.fromSolidityAddress(newMint[1][0]);
+		console.log('Security regression token:', extendedTestingTokenId.toString());
+
+		// associate Alice so she can receive minted NFTs of the fresh token
+		await associateTokenToAccount(client, aliceId, alicePK, extendedTestingTokenId);
+	});
+
+	it('H-1: mintNFT rejects contract (non-EOA) callers with OnlyEOA', async function () {
+		client.setOperator(operatorId, operatorKey);
+
+		// deploy the test-only probe that calls mintNFT from within a contract
+		const probeJson = JSON.parse(
+			fs.readFileSync('./artifacts/contracts/test/MintCallerProbe.sol/MintCallerProbe.json'),
+		);
+		probeIface = new ethers.Interface(probeJson.abi);
+		[probeId] = await contractDeployFunction(client, probeJson.bytecode, 1_000_000);
+		expect(probeId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
+
+		// the EOA check is the first statement in mintNFT, so no other setup is needed
+		const mintData = minterIface.encodeFunctionData('mintNFT', [1]);
+		const onlyEoaSelector = ethers.id('OnlyEOA()').slice(0, 10).toLowerCase();
+
+		const result = await contractExecuteFunction(
+			probeId,
+			probeIface,
+			client,
+			2_000_000,
+			'tryMint',
+			[contractId.toSolidityAddress(), mintData],
+			0,
+		);
+
+		expect(result[0]?.status?.toString()).to.be.equal('SUCCESS');
+		expect(result[1][0]).to.be.equal(false);
+		expect(result[1][1].toLowerCase().startsWith(onlyEoaSelector)).to.be.true;
+
+		console.log('✓ H-1: contract-mediated mint reverted with OnlyEOA');
+	});
+
+	it('E-1: maxMint == 0 means uncapped (mint no longer bricked)', async function () {
+		client.setOperator(operatorId, operatorKey);
+
+		// snapshot economics/timing to restore afterwards
+		let enc = minterIface.encodeFunctionData('getMintEconomics');
+		let res = await readOnlyEVMFromMirrorNode(env, contractId, enc, operatorId, false);
+		savedEconomics = minterIface.decodeFunctionResult('getMintEconomics', res)[0];
+		enc = minterIface.encodeFunctionData('getMintTiming');
+		res = await readOnlyEVMFromMirrorNode(env, contractId, enc, operatorId, false);
+		savedTiming = minterIface.decodeFunctionResult('getMintTiming', res)[0];
+
+		// establish a clean, open, free mint for the extended-testing token
+		await execOK('updatePauseStatus', [false]);
+		await execOK('updateWlOnlyStatus', [false]);
+		await execOK('updateMintStartTime', [0]);
+		await execOK('updateMaxMintPerWallet', [0]);
+		await execOK('updateCooldown', [0]);
+		await execOK('updateCost', [BigInt(0), BigInt(0)]);
+		// 0 == uncapped after the E-1 fix
+		await execOK('updateMaxMint', [0]);
+
+		// confirm supply available
+		enc = minterIface.encodeFunctionData('getRemainingMint');
+		res = await readOnlyEVMFromMirrorNode(env, contractId, enc, operatorId, false);
+		expect(Number(minterIface.decodeFunctionResult('getRemainingMint', res)[0])).to.be.greaterThan(2);
+
+		// Alice mints 2 in one tx with maxMint==0 -> succeeds (pre-fix reverted MaxMintExceeded)
+		client.setOperator(aliceId, alicePK);
+		const result = await contractExecuteFunction(
+			contractId, minterIface, client, 2_000_000, 'mintNFT', [2], new Hbar(0),
+		);
+		if (result[0]?.status?.toString() != 'SUCCESS') {
+			console.log('E-1 mint FAILED:', result);
+			fail();
+		}
+		expect(result[1][0].length).to.be.equal(2);
+		console.log('✓ E-1: mint of 2 succeeded with maxMint == 0 (uncapped)');
+
+		// restore maxMint (cost/pause left as-is for L-2; full restore at end of L-2)
+		client.setOperator(operatorId, operatorKey);
+		await execOK('updateMaxMint', [savedEconomics.maxMint]);
+	});
+
+	it('L-2: per-wallet cooldown is enforced', async function () {
+		client.setOperator(operatorId, operatorKey);
+		// open + free, cooldown disabled for the priming mint
+		await execOK('updatePauseStatus', [false]);
+		await execOK('updateMintStartTime', [0]);
+		await execOK('updateMaxMintPerWallet', [0]);
+		await execOK('updateCost', [BigInt(0), BigInt(0)]);
+		await execOK('updateMaxMint', [20]);
+		await execOK('updateCooldown', [0]);
+
+		// prime: Alice mints once (cooldown disabled) -> sets walletMintTime
+		client.setOperator(aliceId, alicePK);
+		let result = await contractExecuteFunction(
+			contractId, minterIface, client, 1_500_000, 'mintNFT', [1], new Hbar(0),
+		);
+		if (result[0]?.status?.toString() != 'SUCCESS') {
+			console.log('L-2 priming mint FAILED:', result);
+			fail();
+		}
+
+		// enable a long cooldown
+		client.setOperator(operatorId, operatorKey);
+		await execOK('updateCooldown', [3600]);
+
+		// Alice immediately tries again -> must revert MintCooldown
+		client.setOperator(aliceId, alicePK);
+		let expected = 0;
+		try {
+			result = await contractExecuteFunction(
+				contractId, minterIface, client, 1_500_000, 'mintNFT', [1], new Hbar(0),
+			);
+			if (result[0]?.status?.name === 'MintCooldown') {
+				expected++;
+			}
+			else {
+				console.log('L-2 ERROR expecting MintCooldown:', result);
+			}
+		}
+		catch (err) {
+			console.log('L-2 unexpected error:', err);
+		}
+		expect(expected).to.be.equal(1);
+		console.log('✓ L-2: second mint within cooldown reverted MintCooldown');
+
+		// restore original config
+		client.setOperator(operatorId, operatorKey);
+		await execOK('updateCooldown', [savedTiming.cooldownPeriod]);
+		await execOK('updateCost', [savedEconomics.mintPriceHbar, savedEconomics.mintPriceLazy]);
+		await execOK('updateMaxMint', [savedEconomics.maxMint]);
+		await execOK('updateMaxMintPerWallet', [savedEconomics.maxMintPerWallet]);
+		await execOK('updateWlOnlyStatus', [savedTiming.wlOnly]);
+		await execOK('updateMintStartTime', [savedTiming.mintStartTime]);
+		await execOK('updatePauseStatus', [savedTiming.mintPaused]);
 	});
 });
 
