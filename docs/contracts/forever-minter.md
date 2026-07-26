@@ -10,6 +10,13 @@
 
 ForeverMinter **respects Hedera royalty fees** on all transfers via the TokenStakerV2 stake/unstake pattern, making it suitable for secondary distribution while preserving creator royalties.
 
+### Security Notes (post-audit)
+
+- **EOA-only minting.** `mintNFT` requires `msg.sender == tx.origin` (error `OnlyEOA`). This stops a wrapper contract from calling the mint, observing the randomly-selected serials in-transaction, and reverting on an unfavourable roll to cherry-pick rares for free. Contract/multisig callers cannot mint — an intentional trade-off for fair distribution and instant serial feedback.
+- **Sponsored LAZY is not refundable.** When `lazyFromContract` is enabled the contract pays the LAZY portion, so the user's recorded `lazyPaid` is `0`; `refundNFT` will never pay back LAZY the user did not contribute.
+- **Excess-HBAR refund is last.** `mintNFT` transfers NFTs and writes all state before refunding excess HBAR, preserving checks-effects-interactions; `registerNFTs` / `addNFTsToPool` / `buyWhitelistWithLazy` are `nonReentrant`.
+- **Refunds are ownership-gated.** `refundNFT` clamps its accounting to the caller's recorded mint count, so a secondary-market holder refunding within the window cannot underflow/DoS the refund. These protections follow from a full security review of the suite.
+
 ## Primary Use Cases
 
 - Distributing existing NFT collections from a managed pool

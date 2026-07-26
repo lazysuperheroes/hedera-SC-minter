@@ -14,6 +14,28 @@ The `MinterContract` creates **transferable NFTs** on Hedera Token Service (HTS)
 - **Configurable Max Supply** -- fixed cap or unlimited supply.
 - **Refund Window** -- users may burn recently minted NFTs for a proportional HBAR + $LAZY refund within a configurable time window.
 
+## Randomness & Fair Distribution
+
+`mintNFT` restricts callers to externally-owned accounts (`msg.sender == tx.origin`,
+error `OnlyEOA`). This prevents a wrapper contract from calling the mint, inspecting the
+returned metadata in-transaction, and reverting on an unfavourable roll to "re-roll" for
+rare items at gas cost only. Contract/multisig/account-abstraction callers therefore
+**cannot** mint — this is intentional; the trade-off is accepted in favour of fair
+distribution and instant metadata feedback (no two-transaction commit-reveal).
+
+**PRNG is optional but must be a conscious choice.** If `prngGenerator` is left unset
+(`address(0)`), metadata is dispensed **deterministically from the end of the loaded
+array** and the next-minted item is fully predictable. This mode is intended **only** for
+editions / uniform metadata where every item is identical. For any collection with varied
+rarity, call `updatePrng` to set a real PRNG **before opening the mint** — otherwise the
+sequence can be predicted. `updatePrng` emits `MinterContractMessage(UPDATE_PRNG, …)` so
+the randomness source is observable on-chain. These protections follow from a full
+security review of the suite.
+
+> `maxMint = 0` means **uncapped** per-transaction mint (bounded only by remaining supply
+> and any per-wallet cap), matching the documentation on `updateMaxMint`. The per-wallet
+> `cooldownPeriod`, when set, is enforced on every `mintNFT` call (error `MintCooldown`).
+
 ## Contract Inheritance
 
 ```

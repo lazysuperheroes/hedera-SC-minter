@@ -189,6 +189,11 @@
             "type": "error"
         },
         {
+            "inputs": [],
+            "name": "OnlyEOA",
+            "type": "error"
+        },
+        {
             "inputs": [
                 {
                     "internalType": "uint256",
