@@ -351,6 +351,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     error EmptyArray();
     error ArrayLengthMismatch();
     error RefundBlockedDueToDiscountUsage(uint256 serial);
+    error OnlyEOA();
 
     // ============ Modifiers ============
 
@@ -417,7 +418,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     /// @notice Register NFTs that have been sent to the contract by treasury
     /// @param _serials Array of serial numbers to register
     /// @dev Verifies ownership before adding to pool. Likely only called by treasury but anyone can trigger.
-    function registerNFTs(uint256[] calldata _serials) external {
+    function registerNFTs(uint256[] calldata _serials) external nonReentrant {
         if (_serials.length == 0) revert EmptyArray();
 
         for (uint256 i = 0; i < _serials.length; ++i) {
@@ -443,7 +444,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     /// @notice Accept NFT donations to the pool from any address
     /// @param _serials Array of serial numbers to add
     /// @dev Uses STAKING transfer direction to respect royalties
-    function addNFTsToPool(uint256[] calldata _serials) external {
+    function addNFTsToPool(uint256[] calldata _serials) external nonReentrant {
         if (_serials.length == 0) revert EmptyArray();
 
         // Transfer NFTs to contract using STAKING direction
@@ -515,12 +516,18 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
     /// @dev User pays cost which includes HBAR + LAZY. If lazyFromContract=true, contract sponsors LAZY portion
     /// @dev Discount waterfall order: Sacrifice → Holder → WL → Full Price
     /// @dev IMPORTANT: For optimal discounts, provide _discountTokens sorted by discount tier (highest first)
+    // solhint-disable-next-line function-max-lines
     function mintNFT(
         uint256 _numberToMint,
         address[] calldata _discountTokens,
         uint256[][] calldata _serialsByToken,
         uint256[] calldata _sacrificeSerials
     ) external payable nonReentrant whenMintingAllowed {
+        // H-1: restrict minting to EOAs so a contract cannot wrap the call, inspect the
+        // randomly-selected serials, and revert on an unfavourable roll to re-roll for free
+        // solhint-disable-next-line avoid-tx-origin
+        if (msg.sender != tx.origin) revert OnlyEOA();
+
         // ====== Step 1: Validate inputs ======
 
         if (_numberToMint == 0) revert InvalidQuantity();
@@ -643,11 +650,8 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
         if (msg.value < costResult.totalHbarCost) revert NotEnoughHbar();
         hbarPaid = costResult.totalHbarCost;
 
-        // Refund excess HBAR
-        if (msg.value > costResult.totalHbarCost) {
-            uint256 refund = msg.value - costResult.totalHbarCost;
-            payable(msg.sender).sendValue(refund);
-        }
+        // H-3: excess HBAR is refunded at the very end of the function (Step 10), AFTER
+        // the NFT transfer and all state writes, to preserve checks-effects-interactions
 
         // LAZY payment: drawn from contract if lazyFromContract=true, else from user
         if (costResult.totalLazyCost > 0) {
@@ -722,8 +726,12 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
         mintTiming.lastMintTime = block.timestamp;
 
         // Track payment for each serial (for refunds) - split both HBAR and LAZY evenly
+        // H-2: only the user's own LAZY is refundable. When the contract sponsors the LAZY
+        // portion (lazyFromContract), the user paid 0 LAZY, so record 0 to stop refundNFT
+        // paying out sponsor-funded LAZY the user never contributed.
         uint256 hbarPerNFT = hbarPaid / _numberToMint;
-        uint256 lazyPerNFT = lazyPaid / _numberToMint;
+        uint256 refundableLazy = mintEconomics.lazyFromContract ? 0 : lazyPaid;
+        uint256 lazyPerNFT = refundableLazy / _numberToMint;
 
         for (uint256 i = 0; i < selectedSerials.length; ++i) {
             uint256 serial = selectedSerials[i];
@@ -762,6 +770,13 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
             lazyPaid,
             costResult.totalDiscount
         );
+
+        // ====== Step 10: Refund excess HBAR (LAST) ======
+        // H-3: performed after all NFT transfers and state writes so a re-entrant caller
+        // cannot observe an inconsistent pool/state during the external HBAR send.
+        if (msg.value > costResult.totalHbarCost) {
+            payable(msg.sender).sendValue(msg.value - costResult.totalHbarCost);
+        }
     }
 
     // ============ Refund Function ============
@@ -848,8 +863,16 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
         }
 
         // Update wallet average payment and mint count
-        _adjustAveragePaymentOnRefund(msg.sender, _serials.length, totalHbarPaid, totalLazyPaid);
-        walletMintCount[msg.sender] -= _serials.length;
+        // L-1: clamp to the caller's recorded mint count. Refunds are authorised by current
+        // ownership + refund window, so a secondary-market holder (or a repeat refunder)
+        // could refund more serials than they personally minted; without the clamp the
+        // walletMintCount subtraction underflows and reverts, DoS-ing a valid refund.
+        uint256 mintCount = walletMintCount[msg.sender];
+        uint256 refundCount = _serials.length > mintCount
+            ? mintCount
+            : _serials.length;
+        _adjustAveragePaymentOnRefund(msg.sender, refundCount, totalHbarPaid, totalLazyPaid);
+        walletMintCount[msg.sender] = mintCount - refundCount;
 
         emit NFTRefunded(
             msg.sender,
@@ -1132,6 +1155,19 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
                     : 0;
 
                 if (remaining > 0) {
+                    // H-4: skip duplicate (token, serial) entries. Without this, listing
+                    // the same serial multiple times would create multiple slots that each
+                    // read the same stale serialDiscountUsage, letting one serial be
+                    // replayed for more than its remaining uses within a single tx.
+                    bool dup = false;
+                    for (uint256 k = 0; k < slotIndex; ++k) {
+                        if (slots[k].token == token && slots[k].serial == serial) {
+                            dup = true;
+                            break;
+                        }
+                    }
+                    if (dup) continue;
+
                     slots[slotIndex] = DiscountSlot({
                         token: token,
                         serial: serial,
@@ -1489,7 +1525,7 @@ contract ForeverMinter is TokenStakerV2, Ownable, ReentrancyGuard {
 
     /// @notice Buy whitelist slots with LAZY tokens
     /// @param _quantity Number of slot groups to purchase (e.g., 2 = buy 2x the configured slot count)
-    function buyWhitelistWithLazy(uint256 _quantity) external {
+    function buyWhitelistWithLazy(uint256 _quantity) external nonReentrant {
         if (mintEconomics.buyWlWithLazy == 0) revert InvalidParameter();
         if (mintEconomics.buyWlSlotCount == 0) revert InvalidParameter();
         if (_quantity == 0) revert InvalidParameter();
