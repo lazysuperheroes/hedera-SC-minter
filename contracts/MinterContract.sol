@@ -130,6 +130,8 @@ contract MinterContract is ExpiryHelper, Ownable, ReentrancyGuard {
     error NotTokenOwner();
     error MaxSerials();
     error BadArguments();
+    error OnlyEOA();
+    error MintCooldown();
 
     struct MintTiming {
         uint256 lastMintTime;
@@ -202,7 +204,8 @@ contract MinterContract is ExpiryHelper, Ownable, ReentrancyGuard {
         UPDATE_LAZY_FROM_CONTRACT,
         UPDATE_CID,
         UPDATE_MINT_START_TIME,
-        UPDATE_REFUND_WINDOW
+        UPDATE_REFUND_WINDOW,
+        UPDATE_PRNG
     }
 
     event MinterContractMessage(
@@ -376,14 +379,31 @@ contract MinterContract is ExpiryHelper, Ownable, ReentrancyGuard {
         nonReentrant
         returns (int64[] memory _serials, bytes[] memory _metadataForMint)
     {
+        // H-1: restrict minting to EOAs so a contract cannot wrap the call, inspect the
+        // returned metadata, and revert on an unfavourable roll to re-roll rares for free
+        // solhint-disable-next-line avoid-tx-origin
+        if (msg.sender != tx.origin) revert OnlyEOA();
         if (_numberToMint == 0) revert BadQuantity(_numberToMint);
         if (
             mintTiming.mintStartTime != 0 &&
             mintTiming.mintStartTime > block.timestamp
         ) revert NotOpen();
         if (mintTiming.mintPaused) revert Paused();
+        // L-2: enforce the per-wallet mint cooldown (previously configured but never checked)
+        if (mintTiming.cooldownPeriod > 0) {
+            (bool cdFound, uint256 lastWalletMint) = walletMintTimeMap.tryGet(
+                msg.sender
+            );
+            if (
+                cdFound &&
+                block.timestamp < lastWalletMint + mintTiming.cooldownPeriod
+            ) revert MintCooldown();
+        }
         if (_numberToMint > metadata.length) revert MintedOut();
-        if (_numberToMint > mintEconomics.maxMint) revert MaxMintExceeded();
+        // E-1: maxMint == 0 means uncapped (as documented on updateMaxMint), so only
+        // enforce the per-transaction cap when a non-zero limit is set
+        if (mintEconomics.maxMint > 0 && _numberToMint > mintEconomics.maxMint)
+            revert MaxMintExceeded();
 
         bool isWlMint = false;
         // Design decision: WL max mint per wallet takes priority
@@ -885,9 +905,17 @@ contract MinterContract is ExpiryHelper, Ownable, ReentrancyGuard {
         mintTiming.wlOnly = _wlOnly;
     }
 
-    /// @param _prng address of the new PRNG Generator
+    /// @param _prng address of the new PRNG Generator. Set to address(0) to use the
+    /// deterministic sequential-metadata mode, which is intended ONLY for editions /
+    /// uniform metadata. For varied-rarity collections, configure a real PRNG here
+    /// BEFORE opening the mint, otherwise the next-minted metadata is fully predictable.
     function updatePrng(address _prng) external onlyOwner {
         prngGenerator = _prng;
+        emit MinterContractMessage(
+            ContractEventType.UPDATE_PRNG,
+            _prng,
+            0
+        );
     }
 
     /// @param _lazyAmt int amount of Lazy (adjusted for decimals)
@@ -1410,6 +1438,10 @@ contract MinterContract is ExpiryHelper, Ownable, ReentrancyGuard {
         // size the return array
         metadataForMint = new bytes[](numberToMint);
 
+        // NOTE: with no PRNG configured (prngGenerator_ == address(0)) metadata is dispensed
+        // deterministically from the end of the array. This is intended ONLY for editions /
+        // uniform metadata; for varied-rarity collections set a PRNG via updatePrng before
+        // opening the mint (the sequence is otherwise fully predictable). See docs/security.
         if (prngGenerator_ == address(0)) {
             for (uint256 m = 0; m < numberToMint; m++) {
                 metadataForMint[m] = bytes(
