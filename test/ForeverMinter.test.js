@@ -98,6 +98,10 @@ describe('Deployment & Setup: ', function () {
 		}
 
 		client.setOperator(operatorId, operatorKey);
+		// The SDK default max tx fee (~2 ℏ) is below current testnet cost for large
+		// contract-create txs (INSUFFICIENT_TX_FEE). Raise the cap (bounds fee only).
+		client.setDefaultMaxTransactionFee(new Hbar(50));
+		client.setDefaultMaxQueryPayment(new Hbar(5));
 		console.log('\n-Using Operator:', operatorId.toString());
 
 		// Create test accounts: Alice, Bob, Carol
@@ -465,6 +469,10 @@ describe('Deployment & Setup: ', function () {
 		}
 
 		console.log('ForeverMinter registered with LazyGasStation, tx:', addContractUserResult[2]?.transactionId?.toString());
+
+		// give the mirror node time to index the freshly-deployed contract before the
+		// constructor / initial-state verification reads below (mirror node lags consensus)
+		await sleep(8000);
 	});
 });
 
@@ -2975,6 +2983,137 @@ describe('Edge Cases & Validation:', function () {
 		else {
 			console.log('✓ Pool has sufficient NFTs, skipping insufficient pool test');
 		}
+	});
+});
+
+describe('Security Regression (audit remediation):', function () {
+	let probeId, probeIface;
+
+	// small helper for owner setter calls that must succeed
+	async function execOK(fn, params, gas = 500_000) {
+		const r = await contractExecuteFunction(contractId, minterIface, client, gas, fn, params);
+		if (r[0]?.status?.toString() != 'SUCCESS') {
+			console.log(`${fn} FAILED:`, r);
+			fail();
+		}
+		return r;
+	}
+
+	it('H-1: mintNFT rejects contract (non-EOA) callers with OnlyEOA', async function () {
+		client.setOperator(operatorId, operatorKey);
+
+		// minting must be allowed so execution reaches the in-body EOA check
+		await execOK('updatePauseStatus', [false]);
+
+		// deploy the test-only probe that calls mintNFT from within a contract
+		const probeJson = JSON.parse(
+			fs.readFileSync('./artifacts/contracts/test/MintCallerProbe.sol/MintCallerProbe.json'),
+		);
+		probeIface = new ethers.Interface(probeJson.abi);
+		[probeId] = await contractDeployFunction(client, probeJson.bytecode, 1_000_000);
+		expect(probeId.toString().match(ADDRESS_REGEX).length == 2).to.be.true;
+
+		const mintData = minterIface.encodeFunctionData('mintNFT', [1, [], [], []]);
+		const onlyEoaSelector = ethers.id('OnlyEOA()').slice(0, 10).toLowerCase();
+
+		const result = await contractExecuteFunction(
+			probeId,
+			probeIface,
+			client,
+			2_000_000,
+			'tryMint',
+			[contractId.toSolidityAddress(), mintData],
+			0,
+		);
+
+		// outer probe call succeeds; inner mint must be rejected specifically by OnlyEOA
+		expect(result[0]?.status?.toString()).to.be.equal('SUCCESS');
+		expect(result[1][0]).to.be.equal(false);
+		expect(result[1][1].toLowerCase().startsWith(onlyEoaSelector)).to.be.true;
+
+		console.log('✓ H-1: contract-mediated mint reverted with OnlyEOA');
+	});
+
+	it('H-4: duplicate discount serials do not multiply discount uses', async function () {
+		client.setOperator(operatorId, operatorKey);
+
+		// set discountToken1 tier to exactly 1 use per serial
+		await execOK('addDiscountTier', [discountToken1Id.toSolidityAddress(), 25, 1]);
+		// wait for the mirror node to catch up so the view below reads the updated tier
+		// (mirror node lags consensus by a few seconds)
+		await sleep(7000);
+
+		// price a mint of 2 while passing the SAME (unused) serial twice
+		const enc = minterIface.encodeFunctionData('calculateMintCost', [
+			2,
+			[discountToken1Id.toSolidityAddress()],
+			[[999999, 999999]],
+			0,
+		]);
+		const res = await readOnlyEVMFromMirrorNode(env, contractId, enc, operatorId, false);
+		// returns (totalHbarCost, totalLazyCost, totalDiscount, holderSlotsUsed, wlSlotsUsed)
+		const decoded = minterIface.decodeFunctionResult('calculateMintCost', res);
+		const holderSlotsUsed = Number(decoded[3]);
+
+		// deduped => a single serial grants only its 1 use (pre-fix this would be 2)
+		expect(holderSlotsUsed).to.be.equal(1);
+		console.log('✓ H-4: duplicate serial deduped, holderSlotsUsed =', holderSlotsUsed);
+	});
+
+	it('H-2: sponsored LAZY (lazyFromContract) is not recorded as refundable', async function () {
+		client.setOperator(operatorId, operatorKey);
+
+		// snapshot economics to restore afterwards
+		let enc = minterIface.encodeFunctionData('getMintEconomics');
+		let res = await readOnlyEVMFromMirrorNode(env, contractId, enc, operatorId, false);
+		const saved = minterIface.decodeFunctionResult('getMintEconomics', res)[0];
+
+		// ensure the pool has at least one serial available to mint
+		enc = minterIface.encodeFunctionData('getRemainingSupply');
+		res = await readOnlyEVMFromMirrorNode(env, contractId, enc, operatorId, false);
+		expect(Number(minterIface.decodeFunctionResult('getRemainingSupply', res)[0])).to.be.greaterThan(0);
+
+		// fund the contract with LAZY so it can sponsor the draw, then enable sponsorship
+		await sendLazy(AccountId.fromString(contractId.toString()), 1000);
+		await execOK('updatePauseStatus', [false]);
+		// updateEconomics(hbar, lazy, wlDisc, sacDisc, maxMint, maxPerWallet, buyWlLazy, buyWlSlots, maxSac, lazyFromContract)
+		await execOK('updateEconomics', [
+			1000, 50, 0, 0, 50, 0,
+			saved.buyWlWithLazy, saved.buyWlSlotCount, saved.maxSacrifice, true,
+		]);
+
+		// Carol mints 1 paying HBAR only (contract sponsors the LAZY portion)
+		client.setOperator(carolId, carolPK);
+		await setHbarAllowance(client, carolId, contractId, 100);
+		const before = await getSerialsOwned(env, carolId, nftTokenId);
+		const mintResult = await contractExecuteFunction(
+			contractId, minterIface, client, 2_000_000, 'mintNFT', [1, [], [], []], 50,
+		);
+		if (mintResult[0]?.status?.toString() != 'SUCCESS') {
+			console.log('H-2 sponsored mint FAILED:', mintResult);
+			fail();
+		}
+		await sleep(5000);
+		const after = await getSerialsOwned(env, carolId, nftTokenId);
+		const minted = after.filter((s) => !before.includes(s));
+		expect(minted.length).to.be.greaterThan(0);
+		const serial = minted[0];
+
+		// the recorded per-serial lazyPaid MUST be 0 (sponsored => not refundable)
+		client.setOperator(operatorId, operatorKey);
+		const payEnc = minterIface.encodeFunctionData('getSerialPayment', [serial]);
+		const payRes = await readOnlyEVMFromMirrorNode(env, contractId, payEnc, operatorId, false);
+		const payment = minterIface.decodeFunctionResult('getSerialPayment', payRes)[0];
+		expect(Number(payment.lazyPaid)).to.be.equal(0);
+		expect(Number(payment.hbarPaid)).to.be.greaterThan(0);
+		console.log('✓ H-2: sponsored mint recorded lazyPaid=0 (not refundable)');
+
+		// restore economics
+		await execOK('updateEconomics', [
+			saved.mintPriceHbar, saved.mintPriceLazy, saved.wlDiscount, saved.sacrificeDiscount,
+			saved.maxMint, saved.maxMintPerWallet, saved.buyWlWithLazy, saved.buyWlSlotCount,
+			saved.maxSacrifice, saved.lazyFromContract,
+		]);
 	});
 });
 

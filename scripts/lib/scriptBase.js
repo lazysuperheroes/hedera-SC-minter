@@ -3,6 +3,7 @@ const {
 	AccountId,
 	PrivateKey,
 	ContractId,
+	Hbar,
 } = require('@hashgraph/sdk');
 require('dotenv').config();
 const fs = require('fs');
@@ -40,6 +41,11 @@ function createClient(env, operatorId, operatorKey) {
 	}
 
 	client.setOperator(operatorId, operatorKey);
+	// The SDK default max transaction fee (~2 ℏ) is now below what testnet charges for
+	// large contract-create (millions of gas) transactions, causing INSUFFICIENT_TX_FEE.
+	// Raise the cap (this only bounds the fee — the network still charges the real amount).
+	client.setDefaultMaxTransactionFee(new Hbar(50));
+	client.setDefaultMaxQueryPayment(new Hbar(5));
 	return client;
 }
 
