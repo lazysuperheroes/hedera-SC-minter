@@ -20,9 +20,9 @@ Three packages that cover the full lifecycle of NFT minting on Hedera -- from co
 
 | Package | Version | Description |
 |---------|---------|-------------|
-| [`@lazysuperheroes/hedera-minter-contracts`](https://www.npmjs.com/package/@lazysuperheroes/hedera-minter-contracts) | 1.0.0 | ABIs and Solidity sources for 10 minting contracts (MinterContract, SoulboundMinter, ForeverMinter, SoulboundBadgeMinter, EditionWithPrize, and supporting contracts). Zero runtime dependencies. |
-| [`@lazysuperheroes/hedera-minter-sdk`](https://www.npmjs.com/package/@lazysuperheroes/hedera-minter-sdk) | 1.0.0 | Utility modules for deploying, querying, and interacting with minter contracts. Includes contract execution, mirror node queries, gas estimation, and transaction parsing. |
-| [`@lazysuperheroes/hedera-minter-cli`](https://www.npmjs.com/package/@lazysuperheroes/hedera-minter-cli) | 1.0.0 | The `hedera-mint` CLI with 85+ commands for deploying and managing all minting contract types. Supports `--json` output and `--no-input` mode for automation. |
+| [`@lazysuperheroes/hedera-minter-contracts`](https://www.npmjs.com/package/@lazysuperheroes/hedera-minter-contracts) | 1.0.2 | ABIs and Solidity sources for 10 minting contracts (MinterContract, SoulboundMinter, ForeverMinter, SoulboundBadgeMinter, EditionWithPrize, and supporting contracts). Zero runtime dependencies. |
+| [`@lazysuperheroes/hedera-minter-sdk`](https://www.npmjs.com/package/@lazysuperheroes/hedera-minter-sdk) | 1.0.2 | Utility modules for deploying, querying, and interacting with minter contracts. Includes contract execution, mirror node queries, gas estimation, and transaction parsing. |
+| [`@lazysuperheroes/hedera-minter-cli`](https://www.npmjs.com/package/@lazysuperheroes/hedera-minter-cli) | 1.0.1 | The `hedera-mint` CLI with 85+ commands for deploying and managing all minting contract types. Supports `--json` output and `--no-input` mode for automation. |
 
 **Repository:** [github.com/lazysuperheroes/hedera-SC-minter](https://github.com/lazysuperheroes/hedera-SC-minter)
 
@@ -62,7 +62,7 @@ npm install @lazysuperheroes/hedera-minter-sdk @lazysuperheroes/hedera-minter-co
 
 | Package | Version | Description |
 |---------|---------|-------------|
-| [`@lazysuperheroes/lazy-lotto`](https://www.npmjs.com/package/@lazysuperheroes/lazy-lotto) | 1.0.0 | LazyLotto and LazyTradeLotto lottery systems on Hedera. ABIs and CLI tools for on-chain lottery management with verifiable random winner selection. |
+| [`@lazysuperheroes/lazy-lotto`](https://www.npmjs.com/package/@lazysuperheroes/lazy-lotto) | 1.2.0 | LazyLotto and LazyTradeLotto lottery systems on Hedera. ABIs and CLI tools for on-chain lottery management with verifiable random winner selection. |
 
 **Repository:** [github.com/lazysuperheroes/hedera-SC-lazy-lotto](https://github.com/lazysuperheroes/hedera-SC-lazy-lotto)
 
@@ -93,7 +93,7 @@ npm install @lazysuperheroes/hedera-minter-sdk @lazysuperheroes/hedera-minter-co
 | Package | Version | Description |
 |---------|---------|-------------|
 | [`@lazysuperheroes/hedera-nft-utils`](https://www.npmjs.com/package/@lazysuperheroes/hedera-nft-utils) | 2.0.0 | NFT migration and utility toolkit. Migrate NFTs from mainnet to testnet, sweep HBAR across accounts, and more. Essential for testing and development workflows. |
-| [`@lazysuperheroes/nft-static-data`](https://www.npmjs.com/package/@lazysuperheroes/nft-static-data) | 1.0.1 | NFT static metadata uploader. Scrape, pin, and serve NFT metadata via IPFS/Filebase for the Lazy dApp and SecureTrade Marketplace. |
+| [`@lazysuperheroes/nft-static-data`](https://www.npmjs.com/package/@lazysuperheroes/nft-static-data) | 1.0.2 | NFT static metadata uploader. Scrape, pin, and serve NFT metadata via IPFS/Filebase for the Lazy dApp and SecureTrade Marketplace. |
 | [`@lazysuperheroes/token-graveyard`](https://www.npmjs.com/package/@lazysuperheroes/token-graveyard) | 2.1.2 | Permanent NFT storage contract for Hedera with royalty bypass capabilities. Send unwanted NFTs to the graveyard -- a verifiable, on-chain dead letter box. |
 
 **Repositories:**
